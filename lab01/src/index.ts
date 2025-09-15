@@ -10,12 +10,21 @@ export class SyntaxError extends Error
 {
 }
 
-function parse(content: string): MatchResult
-{
-    throw "Not implemented";
-}
+/*
+We can use the grammar object's match() method to recognize arithmetic expressions in our library. 
+match returns a MatchResult object which (among other things) has a succeeded() method.
+*/
+function parse(content: string): MatchResult {
+    const matchResult = grammar.match(content, "Expr");
 
-function calculate(expression: MatchResult):number
-{
-    throw "Not implemented"
+    // проверка необходима для проверки валидности кода (7/18 тестов)
+    if (!matchResult.succeeded()) {
+        throw new SyntaxError();
+    }
+
+    return matchResult;
+}
+  
+function calculate(expression: MatchResult): number {
+    return addMulSemantics(expression).calculate();
 }

@@ -1,3 +1,20 @@
 AddMul {
- // Write the rules here
+  // Write the rules here
+  Expr = AddExp
+
+  AddExp = AddExp "+" MulExp -- plus
+    | MulExp
+
+  MulExp = MulExp "*" PriExp -- times
+    | PriExp
+
+  PriExp = number                 -- number
+    | "(" Expr ")"       -- paren
+
+  // _ = (space | "\t" | "\n")*
+
+  digit_excluding_zero = "1".."9"
+  number = digit_excluding_zero* "." digit+ -- fract
+    | digit_excluding_zero digit*      -- whole
+    | "0"                              -- zero
 }

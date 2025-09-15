@@ -1,0 +1,133 @@
+сборка: Shift-Ctrl-B
+тестирование: выполняется в разделе 'Тестирование'
+
+Теория: 
+    Ohm consists of two parts: a domain-specific language, and a library. 
+        The Ohm language is based on parsing expression grammars (PEGs), which are a formal way of describing syntax, 
+        similar to regular expressions and context-free grammars. 
+        The Ohm library provides a JavaScript interface for creating parsers, interpreters, and more from the grammars you write.
+    The first step in defining a new language with Ohm is to create a grammar. 
+    A grammar is made up of rules. 
+        Example: 
+            Arithmetic {
+                Exp = "42"
+            }
+
+        This grammar has a single rule named "Exp" whose rule body is the literal string "42". 
+    To associate a set of semantic actions with a particular grammar (в моем случае addmul), we first need to create a 
+        Semantics object for that grammar, using its createSemantics() method.
+        Then, we add a new operation to the semantics, by calling its addOperation() method with an action dictionary as the argument.
+    Each argument to a semantic action is a "semantic adapter", just like the ones that are used to execute an operation. 
+        Hopefully this helps make their purpose more clear: 
+        a semantic adapter is an interface to a particular parse tree node, providing a way to execute operations on that node.
+    К правилам грамматики пишутся "семантические действия". Чтобы привязать к конкретному синтаксическому правилу какое-то семантическое действие 
+        используется "семантический адаптер" - интерфейс для узла дерева парсинга.
+        ! If you don't specify a semantic action, Ohm will use a pass-through action by default
+
+Использовал материалы: 
+    (синтаксис и семантика языка):  https://nextjournal.com/dubroy/ohm-parsing-made-easy
+    (только синтаксис): https://ohmjs.org/docs/syntax-reference
+        
+
+
+добавил: 
+    1) index.ts
+
+        function parse(content: string): MatchResult {
+            const matchResult = grammar.match(content, "Expr");
+
+            // проверка необходима для проверки валидности кода (7/18 тестов)
+            if (!matchResult.succeeded()) {
+                throw new SyntaxError();
+            }
+
+            return matchResult;
+        }
+        
+        function calculate(expression: MatchResult): number {
+            return addMulSemantics(expression).calculate();
+        }
+
+
+
+    2) addmul.ohm 
+
+        AddMul {
+            Expr = AddExp
+
+            AddExp = AddExp _ "+" _ MulExp  -- plus
+                | MulExp
+
+            MulExp = MulExp "*" PriExp  -- times
+                    | PriExp
+
+            PriExp = number                 -- number
+                    | "(" _ Expr _ ")"       -- paren
+
+            _ = (space | "\t" | "\n")*
+
+            digit_excluding_zero = "1".."9"
+            number = digit_excluding_zero* "." digit+  -- fract
+                    | digit_excluding_zero digit*       -- whole
+                    | "0"                               -- zero
+        }
+
+    Здесь описывается СИНТАКСИС языка. Создана грамматика "AddMul" языка с разными правилами:
+
+    Expr = AddExp
+        стартовое правило: всё, что считается выражением, определяется через AddExp. 
+            ! В Ohm имя правила, начинающееся с заглавной буквы, считается синтаксическим правилом.
+
+    AddExp = AddExp _ "+" _ MulExp -- plus | MulExp
+        When a parsing expression is followed by the characters "--" and a name, it signals an "inline rule declaration" or "case labels".
+        ! case labels are actually a shorthand for declaring separate rules.
+        ! Про case labels читай здесь: https://nextjournal.com/dubroy/ohm-parsing-made-easy в разделе "Case Labels and Arity".
+        Example:
+            AddExp = AddExp "+" MulExp  -- plus | MulExp
+            is equal to:
+            AddExp = AddExp_plus | MulExp
+            AddExp_plus = AddExp "+" MulExp 
+        левоассоциативное поведение для "+".
+
+    MulExp = MulExp "*" PriExp -- times | PriExp
+        левоассоциативное поведение для "*".
+        ! тк MulExp встречается внутри AddExp это даёт более высокий приоритет "*" по сравнению с "+".
+
+    PriExp = number -- number | "(" _ Expr _ ")" -- paren
+        PriExp = Primary Expression
+        либо number, либо скобки. Скобки чтобы переопределять приоритеты.
+
+    _ = (space | "\t" | "\n")*
+        правило _ - чтобы разрешать произвольные пробелы/переводы строки вокруг "+" и "*".
+
+
+
+    3) calculate.ts
+
+        export const addMulSemantics: AddMulSemantics = grammar.createSemantics() as AddMulSemantics;
+        const addMulCalc = {
+            Expr(input) { return input.calculate(); },
+
+            AddExp_plus(left, _1, _plus, _2, right) { return left.calculate() + right.calculate(); },
+            AddExp(mulExp) { return mulExp.calculate(); },
+
+            MulExp_times(left, _star, right) { return left.calculate() * right.calculate(); },
+            MulExp(priExp) { return priExp.calculate(); },
+
+            PriExp_number(num) { return num.calculate(); },
+            PriExp_paren(_open_paren, _1, expr, _2, _close_paren) { return expr.calculate(); },
+
+            number_fract: function(whole, dot, fractional) {
+                return parseFloat(this.sourceString);
+            },
+            number_whole: function(nonZero, digits) {
+                return parseInt(this.sourceString, 10);
+            },
+            number_zero: function(zero) {
+                return 0;
+            },
+        } satisfies AddMulActionDict<number>
+        addMulSemantics.addOperation<Number>("calculate()", addMulCalc);
+
+        здесь добавляется семантика к грамматике "AddMul".
+        Важно что если не специфицировать семантическое действие, то Ohm будет испольщовать дефолтное (пока действие имеет 1 аргумент, а у меня >1).

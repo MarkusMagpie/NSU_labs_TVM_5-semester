@@ -1,3 +1,14 @@
 ReversePolishNotation {
     // write rules here
+    Expr = RpnExpr
+    RpnExpr = RpnExpr RpnExpr "+"   -- plus
+        | RpnExpr RpnExpr "*"   -- mult
+        | number         -- number
+
+    digit_excluding_zero = "1".."9"
+    number = digit_excluding_zero* "." digit+ -- fract
+        | digit_excluding_zero digit*      -- whole
+        | "0"                        -- zero
+
+    // _ = (space | "\t" | "\n")*
 }
