@@ -27,11 +27,15 @@ const arithCalc = {
         for (let i = 0; i < n; i++) {
             const op = operator.child(i).sourceString;
             const rightVal = rest.child(i).calculate(this.args.params);
-            // switch (op) {
-            //     case '+': res += rightVal;
-            //     case '-': res -= rightVal;
-            // }
-            res = op === '+' ? res + rightVal : res - rightVal;
+            switch (op) {
+                case '+': 
+                    res += rightVal;
+                    break;
+                case '-': 
+                    res -= rightVal;
+                    break;
+            }
+            // res = op === '+' ? res + rightVal : res - rightVal;
         }
 
         return res;
@@ -60,23 +64,17 @@ const arithCalc = {
             const op = operator.child(i).sourceString;
             const rightVal = rest.child(i).calculate(this.args.params);
             
-            // switch (op) {
-            //     case '*': res *= rightVal; 
-            //     case '/': 
-            //         if (rightVal === 0) {
-            //             throw new Error("аниче тот факт што на ноль делить нельзя");
-            //         }
-            //         res /= rightVal;
-            //     default: throw new Error();
-            // }
-
-            if (op === "*") {
-                res *= rightVal;
-            } else if (op === "/") {
-                if (rightVal === 0) {
-                    throw new Error("аниче тот факт што на ноль делить нельзя");
-                }
-                res /= rightVal;
+            switch (op) {
+                case '*': 
+                    res *= rightVal;
+                    break; 
+                case '/': 
+                    if (rightVal === 0) {
+                        throw new Error("аниче тот факт што на ноль делить нельзя");
+                    }
+                    res /= rightVal;
+                    break;
+                default: throw new Error();
             }
         }
         return res;
