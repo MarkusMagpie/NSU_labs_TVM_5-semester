@@ -3,18 +3,18 @@ Arithmetic {
     Expr = AddExp
 
     // ЛЕВОРЕКУРСИВНОЕ ПРАВИЛО для сложения/вычитания
-    AddExp = AddExp ("+" | "-") MulExp  -- binary
-        | MulExp
-    // AddExp = MulExp (("+" | "-") MulExp)*
+    // AddExp = AddExp ("+" | "-") MulExp  -- binary
+    //     | MulExp
+    AddExp = MulExp (("+" | "-") MulExp)*
 
     // ЛЕВОРЕКУРСИВНОЕ ПРАВИЛО для умножения/деления
-    MulExp = MulExp ("*" | "/") PriExp  -- binary
-        | PriExp
-    // MulExp = PriExp (("*" | "/") PriExp)*
+    // MulExp = MulExp ("*" | "/") PriExp  -- binary
+    //     | PriExp
+    MulExp = PriExp (("*" | "/") PriExp)*
 
     PriExp = number                      -- number
         | variable                       -- variable
-        | "-" _ PriExp                   -- unary_minus
+        | "-" PriExp                   -- unary_minus
         | "(" Expr ")"               -- paren
     
     variable = letter (letter | digit)*
@@ -23,5 +23,5 @@ Arithmetic {
     number = digit_excluding_zero* "." digit+ -- fract
         | digit_excluding_zero digit*      -- whole
         | "0"                              -- zero   
-    _ = (space | "\t" | "\n")*
+    // _ = (space | "\t" | "\n")*
 }

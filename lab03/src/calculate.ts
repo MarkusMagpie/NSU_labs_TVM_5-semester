@@ -9,73 +9,81 @@ const arithCalc = {
     Expr(expr) { return expr.calculate(this.args.params); },
 
     // ЛЕВОРЕКУРСИВНОЕ РЕШЕНИЕ
-    AddExp_binary(left, op, right) {
-        // вызывается семантическая опреация calculate(params) -> для доступа к params пишу this.args.paramss
-        const leftVal = left.calculate(this.args.params);
-        const rightVal = right.calculate(this.args.params);
-        switch (op.sourceString) {
-            case '+': return leftVal + rightVal;
-            case '-': return leftVal - rightVal;
-            default: throw new Error();
-        }
-    },
-    AddExp(mulExp) { return mulExp.calculate(this.args.params); },
-
-    // AddExp(first, rest, aux) {
-    //     let res = first.calculate(this.args.params);
-    //     for (let i = 0; i < rest.children.length; i++) {
-    //         const op = rest.children[i][0]; 
-    //         const right = rest.children[i][1]; 
-    //         const rightVal = right.calculate(this.args.params);
-
-    //         switch (op) {
-    //             case '+': res += rightVal;
-    //             case '-': res -= rightVal;
-    //             default: throw new Error();
-    //         }
+    // AddExp_binary(left, op, right) {
+    //     // вызывается семантическая опреация calculate(params) -> для доступа к params пишу this.args.paramss
+    //     const leftVal = left.calculate(this.args.params);
+    //     const rightVal = right.calculate(this.args.params);
+    //     switch (op.sourceString) {
+    //         case '+': return leftVal + rightVal;
+    //         case '-': return leftVal - rightVal;
+    //         default: throw new Error();
     //     }
-
-    //     return res;
     // },
+    // AddExp(mulExp) { return mulExp.calculate(this.args.params); },
+
+    AddExp(first, operator, rest) {
+        let res = first.calculate(this.args.params);
+        const n = operator.children.length;
+        for (let i = 0; i < n; i++) {
+            const op = operator.child(i).sourceString;
+            const rightVal = rest.child(i).calculate(this.args.params);
+            // switch (op) {
+            //     case '+': res += rightVal;
+            //     case '-': res -= rightVal;
+            // }
+            res = op === '+' ? res + rightVal : res - rightVal;
+        }
+
+        return res;
+    },
 
     // ЛЕВОРЕКУРСИВНОЕ РЕШЕНИЕ
-    MulExp_binary(left, op, right) {
-        const leftVal = left.calculate(this.args.params);
-        const rightVal = right.calculate(this.args.params);
-        switch (op.sourceString) {
-            case '*': return leftVal * rightVal;
-            case '/': 
+    // MulExp_binary(left, op, right) {
+    //     const leftVal = left.calculate(this.args.params);
+    //     const rightVal = right.calculate(this.args.params);
+    //     switch (op.sourceString) {
+    //         case '*': return leftVal * rightVal;
+    //         case '/': 
+    //             if (rightVal === 0) {
+    //                 throw new Error("аниче тот факт што на ноль делить нельзя");
+    //             }
+    //             return leftVal / rightVal;
+    //         default: throw new Error();
+    //     }
+    // },
+    // MulExp(mulExp) { return mulExp.calculate(this.args.params); },
+
+    MulExp(first, operator, rest) {
+        let res = first.calculate(this.args.params);
+        const n = operator.children.length;
+        for (let i = 0; i < n; i++) {
+            const op = operator.child(i).sourceString;
+            const rightVal = rest.child(i).calculate(this.args.params);
+            
+            // switch (op) {
+            //     case '*': res *= rightVal; 
+            //     case '/': 
+            //         if (rightVal === 0) {
+            //             throw new Error("аниче тот факт што на ноль делить нельзя");
+            //         }
+            //         res /= rightVal;
+            //     default: throw new Error();
+            // }
+
+            if (op === "*") {
+                res *= rightVal;
+            } else if (op === "/") {
                 if (rightVal === 0) {
                     throw new Error("аниче тот факт што на ноль делить нельзя");
                 }
-                return leftVal / rightVal;
-            default: throw new Error();
+                res /= rightVal;
+            }
         }
+        return res;
     },
-    MulExp(mulExp) { return mulExp.calculate(this.args.params); },
-
-    // MulExp(first, rest, auxilary) {
-    //     let res = first.calculate(this.args.params);
-    //     for (let i = 0; i < rest.length; i++) {
-    //         const op = rest[i][0]; 
-    //         const right = rest[i][1]; 
-    //         const rightVal = right.calculate(this.args.params);
-            
-    //         switch (op.sourceString) {
-    //             case '*': res *= rightVal; 
-    //             case '/': 
-    //                 if (rightVal === 0) {
-    //                     throw new Error("аниче тот факт што на ноль делить нельзя");
-    //                 }
-    //                 res /= rightVal;
-    //             default: throw new Error();
-    //         }
-    //     }
-    //     return res;
-    // },
 
     PriExp_number(num) { return num.calculate(this.args.params); },
-    PriExp_unary_minus(minus, _, expr) { return -expr.calculate(this.args.params); },
+    PriExp_unary_minus(minus, expr) { return -expr.calculate(this.args.params); },
     PriExp_variable(name) {
         const varName = this.sourceString;
         // console.log(varName);
