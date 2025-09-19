@@ -1,4 +1,4 @@
-import { Expr, Bin } from "./ast";
+import { Expr, Binary } from "./ast";
 
 function getOperationPriority(e: Expr): number {
     switch (e.type) {
@@ -16,13 +16,13 @@ function getOperationPriority(e: Expr): number {
 }
 
 // является ли выражение бинарной операцией содержащей типы operation?
-function isBinOperation(e: Expr, operations: Array<Bin['operation']>): e is Bin {
+function isBinOperation(e: Expr, operations: Array<Binary['operation']>): e is Binary {
     return e.type === 'bin' && operations.includes(e.operation);
 }
 
 // нужно ли заключать выражение child в скобки?
 // isRightChild - является ли дочернее выражение правым операндом
-function needParens(child: Expr, parentOperation: Bin['operation'], isRightChild: boolean): boolean {
+function needParens(child: Expr, parentOperation: Binary['operation'], isRightChild: boolean): boolean {
     if (child.type !== 'bin') return false;
 
     const childPriority = getOperationPriority(child);
@@ -42,7 +42,7 @@ function needParens(child: Expr, parentOperation: Bin['operation'], isRightChild
 }
 
 // в isRightChild установил дефолт значение так как единственное место использования - в index.ts и там 1 параметр: e
-export function printExpr(e: Expr, parentOperation?: Bin['operation'], isRightChild: boolean = false):string
+export function printExpr(e: Expr, parentOperation?: Binary['operation'], isRightChild: boolean = false):string
 {
     switch (e.type) {
         case "num":

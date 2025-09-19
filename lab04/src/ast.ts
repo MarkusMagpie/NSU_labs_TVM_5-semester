@@ -1,21 +1,21 @@
-export type Expr = Num | Var | Neg | Bin;
+export type Expr = Number | Variable | Negative | Binary;
 
-export interface Num {
+export interface Number {
     type: 'num';
     value: number;
 }
 
-export interface Var {
+export interface Variable {
     type: 'var';
     name: string;
 }
 
-export interface Neg {
+export interface Negative {
     type: 'neg';
     arg: Expr;
 }
 
-export interface Bin {
+export interface Binary {
     type: 'bin';
     operation: '+' | '-' | '*' | '/';
     left: Expr;
