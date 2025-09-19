@@ -2,33 +2,33 @@ import { c as C, Op, I32 } from "../../wasm";
 import { Expr } from "../../lab04";
 import { buildOneFunctionModule, Fn } from "./emitHelper";
 const { i32, get_local} = C;
+
+function collectVariables(e: Expr, variables: string[]) {
+    switch(e.type) {
+        case 'num':
+            // в числах переменных нема
+            break;
+        case 'var':
+            // если ещё нет в списке -> добавляю
+            if (!variables.includes(e.name)) {
+                variables.push(e.name);
+            }
+            break;
+        case 'neg':
+            collectVariables(e.arg, variables);
+            break;
+        case 'bin':
+            collectVariables(e.left, variables);
+            collectVariables(e.right, variables);
+            break;
+    }
+}
     
 export function getVariables(e: Expr): string[] {
     // throw "Not implemented";
     let variables: string[] = [];
 
-    function colectVars(e: Expr) {
-        switch(e.type) {
-            case 'num':
-                // в числах переменных нема
-                break;
-            case 'var':
-                // если ещё нет в списке -> добавляю
-                if (!variables.includes(e.name)) {
-                    variables.push(e.name);
-                }
-                break;
-            case 'neg':
-                colectVars(e.arg);
-                break;
-            case 'bin':
-                colectVars(e.left);
-                colectVars(e.right);
-                break;
-        }
-    }
-
-    colectVars(e);
+    collectVariables(e, variables);
 
     return variables;
 }
