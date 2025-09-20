@@ -22,16 +22,13 @@ function simplify(e: Expr): Expr {
         case 'neg':
             const arg = simplify(e.arg);
 
-            // здесь уже не будет отрицательного знака так как тут уже 0
+            // test("Constant derives to zero 2", 4, parseAndDerive, parseExpr("0"), "-42", "x");
             if (arg.type === 'num') {
-                return { type: 'num', value: arg.value };
+                return arg;   
             }
-            // // --x => x
-            // else if (arg.type === 'neg') {
-            //     return { type: 'neg', arg: arg.arg };
-            // }
 
-            return { type: 'neg', arg };
+            simplified = { type: 'neg', arg };
+            break;
         case 'bin':
             const left = simplify(e.left);
             const right = simplify(e.right);
@@ -53,7 +50,14 @@ function simplify(e: Expr): Expr {
                 // `x - 0 = x`
                 if (isZero(right)) return left;
                 // `0 - x = -x`
-                if (isZero(left)) return { type: 'neg', arg: right };
+                if (isZero(left)) {
+                    console.log(left, e.operation, right);
+                    if (right.type === 'bin') {
+                        return right;
+                    }
+                    return { type: 'neg', arg: right };
+                }
+                // `--x = x`
             }
             break;
     }
@@ -61,6 +65,10 @@ function simplify(e: Expr): Expr {
     return simplified;
 }
 
+/*
+varName - имя переменной по которой вычисляется производная. 
+При символьном дифференцировании вычисляется производная выражения по конкретной переменной - это именно varName
+*/
 export function derive(e: Expr, varName: string): Expr
 {
     // throw "Not implemented";
@@ -96,8 +104,11 @@ export function derive(e: Expr, varName: string): Expr
                 case '*':
                     // d(u*v)/dx = u*dv/dx + v*du/dx
                     result = { type: 'bin', operation: '+',
-                        left: { type: 'bin', operation: '*', left: left, right: difRight },
-                        right: { type: 'bin', operation: '*', left: right, right: difLeft }
+                        // вот это пиздец - от перемены мест слагаемых сумма видимо разная
+                        // left: { type: 'bin', operation: '*', left: left, right: difRight },
+                        // right: { type: 'bin', operation: '*', left: right, right: difLeft }
+                        left: { type: 'bin', operation: '*', left: difLeft, right: right },
+                        right: { type: 'bin', operation: '*', left: difRight, right: left }
                     };
                     break;
                 case '/':
