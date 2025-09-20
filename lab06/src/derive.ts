@@ -1,9 +1,127 @@
 import { Expr } from "../../lab04";
 
+/*
+- `x * 0 = 0 * x = 0`
+- `x * 1 = 1 * x = x`
+- `x / 1 = x`
+- `x + 0 = 0 + x = x`
+- `x - 0 = x`
+- `0 - x = -x`
+- `--x = x`
+*/
+function simplify(e: Expr): Expr {
+    let simplified: Expr;
+
+    switch (e.type) {
+        case 'num':
+            simplified = e;
+            break;
+        case 'var':
+            simplified = e;
+            break;
+        case 'neg':
+            const arg = simplify(e.arg);
+
+            // здесь уже не будет отрицательного знака так как тут уже 0
+            if (arg.type === 'num') {
+                return { type: 'num', value: arg.value };
+            }
+            // // --x => x
+            // else if (arg.type === 'neg') {
+            //     return { type: 'neg', arg: arg.arg };
+            // }
+
+            return { type: 'neg', arg };
+        case 'bin':
+            const left = simplify(e.left);
+            const right = simplify(e.right);
+            simplified = { type: 'bin', operation: e.operation, left, right };
+            if (e.operation === '*') {
+                // `x * 0 = 0 * x = 0`
+                if (isZero(right) || isZero(left)) return { type: 'num', value: 0 };
+                // `x * 1 = 1 * x = x`
+                if (isOne(right)) return left;
+                if (isOne(left)) return right;
+            } else if (e.operation === '/') {
+                // `x / 1 = x`
+                if (isOne(right)) return left;
+            } else if (e.operation === '+') {
+                // `x + 0 = 0 + x = x`
+                if (isZero(right)) return left;
+                if (isZero(left)) return right;
+            } else if (e.operation === '-') {
+                // `x - 0 = x`
+                if (isZero(right)) return left;
+                // `0 - x = -x`
+                if (isZero(left)) return { type: 'neg', arg: right };
+            }
+            break;
+    }
+
+    return simplified;
+}
+
 export function derive(e: Expr, varName: string): Expr
 {
-    throw "Not implemented";
-}
-function isZero(e: Expr): boolean { throw "Not implemented"}
+    // throw "Not implemented";
+    let result: Expr;
+    switch(e.type) {
+        case 'num':
+            // производная константы равна нулю
+            result = {type: 'num', value: 0};
+            break;
+        case 'var':
+            result = {type: 'num', value: e.name === varName ? 1 : 0};
+            break;
+        case 'neg':
+            // result = {type: 'num', value: e.arg.type === 'var' && e.arg.name === varName ? -1 : 0};
+            result = {type: 'neg', arg: derive(e.arg, varName)};
+            break;
+        case 'bin':
+            // производная бинарных операций
+            const left = e.left;
+            const right = e.right;
+            const difLeft = derive(left, varName);
+            const difRight = derive(right, varName);
+            
+            switch (e.operation) {
+                case '+':
+                    // d(u+v)/dx = du/dx + dv/dx
+                    result = { type: 'bin', operation: '+', left: difLeft, right: difRight };
+                    break;
+                case '-':
+                    // d(u-v)/dx = du/dx - dv/dx
+                    result = { type: 'bin', operation: '-', left: difLeft, right: difRight };
+                    break;
+                case '*':
+                    // d(u*v)/dx = u*dv/dx + v*du/dx
+                    result = { type: 'bin', operation: '+',
+                        left: { type: 'bin', operation: '*', left: left, right: difRight },
+                        right: { type: 'bin', operation: '*', left: right, right: difLeft }
+                    };
+                    break;
+                case '/':
+                    // d(u/v)/dx = (v*du/dx - u*dv/dx) / (v^2 <=> v*v)
+                    result = { type: 'bin', operation: '/',
+                        left: { type: 'bin', operation: '-',
+                            left: { type: 'bin', operation: '*', left: right, right: difLeft },
+                            right: { type: 'bin', operation: '*', left: left, right: difRight }
+                        },
+                        right: { type: 'bin', operation: '*', left: right, right: right }
+                    };
+                    break;
+            }
+    }
 
-function isOne(e: Expr): boolean  { throw "Not implemented"}
+    return simplify(result);
+}
+
+function isZero(e: Expr): boolean { 
+    // throw "Not implemented"
+    return e.type === 'num' && e.value === 0;
+}
+
+function isOne(e: Expr): boolean  { 
+    // throw "Not implemented"
+    return e.type === 'num' && e.value === 1;
+}
