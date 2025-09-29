@@ -104,7 +104,7 @@ export function derive(e: Expr, varName: string): Expr
                 case '*':
                     // d(u*v)/dx = u*dv/dx + v*du/dx
                     result = { type: 'bin', operation: '+',
-                        // вот это пиздец - от перемены мест слагаемых сумма видимо разная
+                        // вот это неправильно - от перемены мест слагаемых сумма видимо разная
                         // left: { type: 'bin', operation: '*', left: left, right: difRight },
                         // right: { type: 'bin', operation: '*', left: right, right: difLeft }
                         left: { type: 'bin', operation: '*', left: difLeft, right: right },
