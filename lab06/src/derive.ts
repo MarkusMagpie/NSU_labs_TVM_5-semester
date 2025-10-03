@@ -24,7 +24,7 @@ function simplify(e: Expr): Expr {
 
             // test("Constant derives to zero 2", 4, parseAndDerive, parseExpr("0"), "-42", "x");
             if (arg.type === 'num') {
-                return arg;   
+                return arg.value === 0 ? { type: 'num', value: 0 } : { type: 'neg', arg };
             }
 
             simplified = { type: 'neg', arg };
@@ -40,8 +40,18 @@ function simplify(e: Expr): Expr {
                 if (isOne(right)) return left;
                 if (isOne(left)) return right;
             } else if (e.operation === '/') {
+                // `0 / x = 0`
+                if (isZero(left)) return { type: "num", value: 0 };
                 // `x / 1 = x`
                 if (isOne(right)) return left;
+                // `-x / y = neg(x / y)`
+                if (left.type === 'neg') {
+                    return simplify({ type: 'neg', arg: { type: 'bin', operation: '/', left: left.arg, right: right } });
+                }
+                // `x / -y = neg(x / y)`
+                if (right.type === 'neg') {
+                    return simplify({ type: 'neg', arg: { type: 'bin', operation: '/', left: left, right: right.arg } });
+                }
             } else if (e.operation === '+') {
                 // `x + 0 = 0 + x = x`
                 if (isZero(right)) return left;
@@ -52,12 +62,12 @@ function simplify(e: Expr): Expr {
                 // `0 - x = -x`
                 if (isZero(left)) {
                     console.log(left, e.operation, right);
-                    if (right.type === 'bin') {
-                        return right;
+                    // 0 - neg(x) = 0 - (-x) = x
+                    if (right.type == "neg") {
+                        return right.arg;                
                     }
-                    return { type: 'neg', arg: right };
+                    return simplify({ type: "neg", arg: right });
                 }
-                // `--x = x`
             }
             break;
     }
