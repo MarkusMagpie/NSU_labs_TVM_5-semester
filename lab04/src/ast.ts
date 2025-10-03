@@ -17,7 +17,7 @@ export interface Negative {
 
 export interface Binary {
     type: 'bin';
-    operation: '+' | '-' | '*' | '/';
     left: Expr;
+    operation: '+' | '-' | '*' | '/';
     right: Expr;
 }
