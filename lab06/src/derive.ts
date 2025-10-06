@@ -26,6 +26,9 @@ function simplify(e: Expr): Expr {
             if (arg.type === 'num') {
                 return arg.value === 0 ? { type: 'num', value: 0 } : { type: 'neg', arg };
             }
+            if (arg.type === 'neg') {
+                return arg.arg;
+            }
 
             simplified = { type: 'neg', arg };
             break;
@@ -61,11 +64,11 @@ function simplify(e: Expr): Expr {
                 if (isZero(right)) return left;
                 // `0 - x = -x`
                 if (isZero(left)) {
-                    console.log(left, e.operation, right);
+                    // console.log(left, e.operation, right);
                     // 0 - neg(x) = 0 - (-x) = x
-                    if (right.type == "neg") {
-                        return right.arg;                
-                    }
+                    // if (right.type == "neg") {
+                    //     return right.arg;                
+                    // }
                     return simplify({ type: "neg", arg: right });
                 }
             }
