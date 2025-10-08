@@ -2,13 +2,13 @@ import * as arith from "../../lab04";
 
 export interface Module
 {
-    type: 'module';
+    type: "module";
     functions: FunctionDef[]
 }
 /*---ФУНКЦИИ И ТИПЫ---*/
 export interface FunctionDef
 {
-    type: 'fun';
+    type: "fun";
     name: string;
     parameters: ParameterDef[]; // входные параметры
     returns: ParameterDef[]; // возвращаемые параметры

@@ -10,6 +10,7 @@ Funny <: Arithmetic {
         UsesOpt? 
         Statement
 
+    // [] в EBNF формате означает что tis is optional 
     ParamList = Param ("," Param)*
     ParamListNonEmpty = Param ("," Param)*
     Param = variable ":" Type

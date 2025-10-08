@@ -6,12 +6,85 @@ import { MatchResult, Semantics } from 'ohm-js';
 function textOf(x: any) {
     if (typeof x === "string") return x;
     if (!x) return "";
-    return x.text;
+    return String(x);
 }
 
 export const getFunnyAst = {
     // write rules here
+
     /*FUNCTIONS*/
+    // Module = Function+
+    Module(funcs) {
+        let function_list = funcs ? funcs : [];
+        return {type: "module", functions: function_list} as ast.Module; 
+    },
+    // Param = variable ":" Type
+    /*
+    export interface ParameterDef
+    {
+        type: "param";
+        name: string;
+    }
+    */
+    Param(name, colon, type: any) {
+        return {type: "param", name: textOf(name)} as ast.ParameterDef;
+    },
+    // ParamList = Param ("," Param)*
+    ParamList(first_param, comma, rest_params) {
+        // в каждом массиве [", ", Param] беру второй элемент - параметр
+        const tail = rest_params ? rest_params.map((x: any) => x[1]) : [];
+        return [first_param, ...tail];
+    },
+    // ParamListNonEmpty = Param ("," Param)*
+    ParamListNonEmpty(first_param, comma, rest_params) {
+        const tail = rest_params ? rest_params.map((x: any) => x[1]) : [];
+        return [first_param, ...tail];
+    },
+    // Preopt = "requires" Predicate 
+    Preopt(requires_str, predicate) {
+        const output = predicate ? predicate : null;
+        return output;
+    },
+    // UsesOpt = "uses" ParamList 
+    UsesOpt(uses_str, params) {
+        // params уже массив из Param
+        const output = params ? params : [];
+        return output;
+    },
+    /*
+    Function = variable 
+        "(" ParamList? ")" 
+        Preopt? 
+        "returns" ParamListNonEmpty 
+        UsesOpt? 
+        Statement
+    */
+    /*
+    export interface FunctionDef
+    {
+        type: "fun";
+        name: string;
+        parameters: ParameterDef[]; // входные параметры
+        returns: ParameterDef[]; // возвращаемые параметры
+        locals: ParameterDef[]; // локальные переменные
+        body: Statement; // тело функции
+    }
+    */
+    Function(var_name, left_paren, params_opt, right_paren, preopt, returns_str, returns_list: any , usesopt, statement: any) {
+        const func_name = textOf(var_name);
+        const func_parameters = params_opt ? params_opt : [];
+        // const pre = preopt ? preopt : [];
+        // const uses = usesopt ? usesopt : [];
+        const return_array = returns_list ? returns_list : [];
+        const locals_array = usesopt ? usesopt : [];
+        return { type: "fun", 
+            name: func_name, 
+            parameters: func_parameters, 
+            returns: return_array, 
+            locals: locals_array, 
+            body: statement } as ast.FunctionDef;
+    },
+
     Type_int(arg0) {
         return "int";
     },
@@ -22,21 +95,27 @@ export const getFunnyAst = {
 
 
     /*STATEMENTS/ОПЕРАТОРЫ*/
+    // Assignment = LValueList "=" ExprList ";"
     Assignment_tuple_assignment(ltargertlist: any, equals, rexprlist: any, semi) {
         const targets = ltargertlist;
         const exprs = rexprlist;
         return { type: "assign", targets, exprs } as ast.AssignStmt;
     },
+    // Assignment = LValue "=" Expr ";" 
     Assignment_simple_assignment(ltargert: any, equals, rexpr: any, semi) {
         const target = ltargert;
         const expr = rexpr;
         return { type: "assign", targets: [target], exprs: [expr] } as ast.AssignStmt;
     },
-    LValueList(first, comma, rest) {
-        
+    // LValueList = LValue ("," LValue)*
+    LValueList(first_value, comma, rest_value) {
+        const tail = rest_value ? rest_value.map((r: any) => r[1]) : [];
+        return [first_value, ...tail];
     },
-    ExprList(arg0, arg1, arg2) {
-        
+    // ExprList = Expr ("," Expr)*
+    ExprList(first_expr, comma, rest_expr) {
+        const tail = rest_expr ? rest_expr.map((r: any) => r[1]) : [];
+        return [first_expr, ...tail];
     },
     // LValue = variable "[" Expr "]" 
     LValue_array_access(name, leftbracket, expr: any, rightbracket) {
@@ -52,7 +131,6 @@ export const getFunnyAst = {
         return { type: "block", stmts: statements } as ast.BlockStmt;
     },
     // Conditional = "if" "(" Condition ")" Statement ("else" Statement)?
-    
     /*
     export interface ConditionalStmt {
         type: "if";
@@ -85,7 +163,8 @@ export const getFunnyAst = {
     },
     // ArgList = Expr ("," Expr)*
     ArgList(first_expr, comma, rest_expr_list) {
-
+        const tail = first_expr ? rest_expr_list.map((r: any) => r[1]) : [];
+        return [first_expr, ...tail];
     },
     // ArrayAccess = variable "[" Expr "]"
     ArrayAccess(name, left_bracket, expr: any, right_bracket) {
@@ -105,7 +184,8 @@ export const getFunnyAst = {
     },
     // Condition = Comparison
     Condition_comparison(arg0) {
-        
+        // return {kind: "comparison",  } as ast.ComparisonCond;
+        return arg0;
     },
     // Condition = "not" Condition
     Condition_not(not, cond: any) {
