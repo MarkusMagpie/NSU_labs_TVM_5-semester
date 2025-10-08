@@ -92,4 +92,12 @@ Funny <: Arithmetic {
         "(" variable ":" Type "|" Predicate ")"
     // ссылки на формулы
     FormulaRef = variable "(" ArgList? ")"
+
+
+
+    space := " " | "\t" | "\n" | comment | ...
+    // (~endOfLine any)* - consume any single character that is not a endOfLine 
+    comment = "//" (~endOfLine any)* endOfLine
+    endOfLine = "\r" | "\n" | "\r\n"
+    spaces := space+ | ...
 }

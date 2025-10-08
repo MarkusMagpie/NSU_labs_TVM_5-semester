@@ -9,6 +9,16 @@ function textOf(x: any) {
     return String(x);
 }
 
+function checkUniqueNames(items: ast.ParameterDef[], kind: string) {
+    const nameMap = new Map<string, number>();
+    items.forEach((item, idx) => {
+        if (nameMap.has(item.name)) {
+            throw new Error(`redeclaration of ${kind} '${item.name}' at position ${idx}`);
+        }
+        nameMap.set(item.name, idx);
+    });
+}
+
 export const getFunnyAst = {
     // write rules here
 
@@ -33,12 +43,16 @@ export const getFunnyAst = {
     ParamList(first_param, comma, rest_params) {
         // в каждом массиве [", ", Param] беру второй элемент - параметр
         const tail = rest_params ? rest_params.map((x: any) => x[1]) : [];
-        return [first_param, ...tail];
+        const params = [first_param, ...tail];
+        checkUniqueNames(params, "parameter");
+        return params;
     },
     // ParamListNonEmpty = Param ("," Param)*
     ParamListNonEmpty(first_param, comma, rest_params) {
         const tail = rest_params ? rest_params.map((x: any) => x[1]) : [];
-        return [first_param, ...tail];
+        const params = [first_param, ...tail];
+        checkUniqueNames(params, "parameter");
+        return params;
     },
     // Preopt = "requires" Predicate 
     Preopt(requires_str, predicate) {
@@ -72,11 +86,16 @@ export const getFunnyAst = {
     */
     Function(var_name, left_paren, params_opt, right_paren, preopt, returns_str, returns_list: any , usesopt, statement: any) {
         const func_name = textOf(var_name);
-        const func_parameters = params_opt ? params_opt : [];
+        const func_parameters: any = params_opt ? params_opt : [];
         // const pre = preopt ? preopt : [];
         // const uses = usesopt ? usesopt : [];
         const return_array = returns_list ? returns_list : [];
-        const locals_array = usesopt ? usesopt : [];
+        const locals_array: any = usesopt ? usesopt : [];
+
+        checkUniqueNames(func_parameters, "parameter");
+        checkUniqueNames(return_array, "return value");
+        checkUniqueNames(locals_array, "local variable");
+
         return { type: "fun", 
             name: func_name, 
             parameters: func_parameters, 
@@ -141,7 +160,7 @@ export const getFunnyAst = {
     */
     Conditional(_if, left_paren, condition: any, right_paren, _then_statement: any, _else, else_statement: any) {
         let _else_statement = _else ? else_statement : null;
-        return { type: "if", condition: condition, then: _then_statement, else: else_statement } as ast.ConditionalStmt;
+        return { type: "if", condition: condition, then: _then_statement, else: _else_statement } as ast.ConditionalStmt;
     },
     // While = "while" "(" Condition ")" InvariantOpt Statement
     While(_while, left_paren, condition: any, right_paren, inv: any, _then: any) {
@@ -313,5 +332,12 @@ interface FunnyActionsExt
 
 export function parseFunny(source: string): ast.Module
 {
-    throw "Not implemented";
+    // throw "Not implemented";
+    const matchResult = grammar.Funny.match(source, "Module");
+
+    if (!matchResult.succeeded()) {
+        throw new SyntaxError(matchResult.message);
+    }
+
+    return semantics(matchResult).parse();
 }
