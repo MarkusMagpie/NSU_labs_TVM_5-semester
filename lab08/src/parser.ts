@@ -31,11 +31,9 @@ export const getFunnyAst = {
     /*FUNCTIONS*/
     // Module = Function+
     Module(funcs) {
-        let functions = funcs.children.map((x: any) => x.parse());
-        return {type: "module", functions: functions} as ast.Module; 
-
+        const functions = funcs.children.map((x: any) => x.parse());
         // const functions = Array.isArray(funcs) ? funcs : [];
-        // return { type: "module", functions: functions } as ast.Module;
+        return { type: "module", functions: functions } as ast.Module;
     },
     // Param = variable ":" Type
     /*
@@ -46,14 +44,14 @@ export const getFunnyAst = {
     }
     */
     Param(name, colon, type: any) {
-        return {type: "param", name: textOf(name)} as ast.ParameterDef;
+        return {type: "param", name: name.sourceString} as ast.ParameterDef;
     },
     // ParamList = Param ("," Param)*
     ParamList(first_param, comma, rest_params) {
         // в каждом массиве [", ", Param] беру второй элемент - параметр
         
         // const tail = rest_params ? rest_params.map((x: any) => x[1]) : [];
-        const tail = rest_params.children.map((x: any) => x.children[1].parse());
+        const tail = rest_params.children.map((x: any) => x.parse());
         const params = [first_param, ...tail];
         checkUniqueNames(params, "parameter");
         return params;
@@ -61,7 +59,7 @@ export const getFunnyAst = {
     // ParamListNonEmpty = Param ("," Param)*
     ParamListNonEmpty(first_param: any, comma, rest_params) {
         // const tail = rest_params ? rest_params.map((x: any) => x[1]) : [];
-        const tail = rest_params.children.map((x: any) => x.children[1].parse());
+        const tail = rest_params.children.map((x: any) => x.parse());
         const params = [first_param, ...tail];
         checkUniqueNames(params, "parameter");
         return params;
@@ -98,7 +96,9 @@ export const getFunnyAst = {
     */
     Function(var_name, left_paren, params_opt, right_paren, preopt, returns_str, returns_list: any , usesopt, statement: any) {
         const func_name = textOf(var_name);
+
         // const func_parameters: any = params_opt ? params_opt : [];
+        const preopt_ast = preopt ? preopt : null; // предусловие функции
         // const return_array = returns_list ? returns_list : [];
         // const locals_array: any = usesopt ? usesopt : [];
 
