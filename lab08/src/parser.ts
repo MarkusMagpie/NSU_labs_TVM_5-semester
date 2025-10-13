@@ -3,26 +3,18 @@ import * as ast from './funny';
 import grammar, { FunnyActionDict } from './funny.ohm-bundle';
 import { MatchResult, Semantics } from 'ohm-js';
 
-function textOf(x: any): string {
-    if (typeof x === "string") return x;
-    if (!x) return "";
-    return String(x);
-}
-
-function checkUniqueNames(items: ast.ParameterDef[], kind: string) {
+function checkUniqueNames(items: ast.ParameterDef[] | ast.ParameterDef, kind: string) {
+    // новая строка - преобразую одиночный объект в массив
+    const itemArray = Array.isArray(items) ? items : [items];
     const nameMap = new Map<string, number>();
-    items.forEach((item, idx) => {
+    
+    itemArray.forEach((item, idx) => {
+        console.log(item.name, typeof(item));
         if (nameMap.has(item.name)) {
             throw new Error(`redeclaration of ${kind} '${item.name}' at position ${idx}`);
         }
         nameMap.set(item.name, idx);
     });
-}
-
-// для опционалов X?
-// n - cst узел
-function opt(n: any, alt: any) {
-    return n.children.length ? n.children[0].parse() : alt;
 }
 
 export const getFunnyAst = {
@@ -50,20 +42,45 @@ export const getFunnyAst = {
     ParamList(first_param, comma, rest_params) {
         // в каждом массиве [", ", Param] беру второй элемент - параметр
         
-        // const tail = rest_params ? rest_params.map((x: any) => x[1]) : [];
-        const tail = rest_params.children.map((x: any) => x.parse());
-        const params = [first_param, ...tail];
+        // 1 версия
+        // const tail = rest_params.children.map((x: any) => x.parse());
+        // const params = [first_param, ...tail];
+        // checkUniqueNames(params, "parameter");
+        // return params;
+
+        // 2 версия
+        const first_param_parsed = (typeof(first_param.parse) !== "undefined") ? first_param.parse() : first_param;
+        const tail = rest_params.children.map((x: any) => {
+            return (typeof(x.parse) !== "undefined") ? x.parse() : x;
+        });
+        const params = [first_param_parsed, ...tail];
         checkUniqueNames(params, "parameter");
         return params;
     },
+    // 3 версия
+    // // ParamList = ListOf<Param, ",">
+    // ParamList(list) {
+    //     const params = list.asIteration().children.map((c: any) => c.parse());
+    //     checkUniqueNames(params, "parameter");
+    //     return params;
+    // },
+    
     // ParamListNonEmpty = Param ("," Param)*
     ParamListNonEmpty(first_param: any, comma, rest_params) {
         // const tail = rest_params ? rest_params.map((x: any) => x[1]) : [];
         const tail = rest_params.children.map((x: any) => x.parse());
         const params = [first_param, ...tail];
-        checkUniqueNames(params, "parameter");
+        checkUniqueNames(params, "return parameter");
         return params;
     },
+    // 2 версия
+    // // ParamListNonEmpty = ListOf<Param, ",">
+    // ParamListNonEmpty(list) {
+    //     const params = list.asIteration().children.map((c: any) => c.parse());
+    //     checkUniqueNames(params, "parameter");
+    //     return params;
+    // },
+
     // Preopt = "requires" Predicate 
     Preopt(requires_str, predicate) {
         const output = predicate ? predicate : null;
@@ -94,30 +111,32 @@ export const getFunnyAst = {
         body: Statement; // тело функции
     }
     */
-    Function(var_name, left_paren, params_opt, right_paren, preopt, returns_str, returns_list: any , usesopt, statement: any) {
-        const func_name = textOf(var_name);
+    Function(var_name, left_paren, params_opt, right_paren, preopt, returns_str, returns_list, usesopt, statement: any) {
+        const func_name = var_name.sourceString;
 
-        // const func_parameters: any = params_opt ? params_opt : [];
+        const func_parameters = (params_opt.children.length > 0) ? params_opt.children[0].parse() : [];
+        const arr_func_parameters = Array.isArray(func_parameters) ? func_parameters : [func_parameters];
+
         const preopt_ast = preopt ? preopt : null; // предусловие функции
-        // const return_array = returns_list ? returns_list : [];
-        // const locals_array: any = usesopt ? usesopt : [];
 
-        const func_parameters = opt(params_opt, []);
         const return_array = returns_list.parse();
-        const locals_array = opt(usesopt, []);
+        const arr_return_array = Array.isArray(return_array) ? return_array : [return_array];
+        
+        const locals_array = (usesopt.children.length > 0) ? usesopt.children[0].parse() : [];
+        const arr_locals_array = Array.isArray(locals_array) ? locals_array : [locals_array];
 
-        checkUniqueNames(func_parameters, "parameter");
-        checkUniqueNames(return_array, "return value");
-        checkUniqueNames(locals_array, "local variable");
+        checkUniqueNames(arr_func_parameters, "parameter");
+        checkUniqueNames(arr_return_array, "return value");
+        checkUniqueNames(arr_locals_array, "local variable");
 
-        const all = [...func_parameters, ...return_array, ...locals_array];
+        const all = [...arr_func_parameters, ...arr_return_array, ...arr_locals_array];
         checkUniqueNames(all, "variable");
 
         return { type: "fun", 
             name: func_name, 
-            parameters: func_parameters, 
-            returns: return_array, 
-            locals: locals_array, 
+            parameters: arr_func_parameters, 
+            returns: arr_return_array, 
+            locals: arr_locals_array, 
             body: statement } as ast.FunctionDef;
     },
 
@@ -148,19 +167,31 @@ export const getFunnyAst = {
         const tail = rest_value ? rest_value.map((r: any) => r[1]) : [];
         return [first_value, ...tail];
     },
+    // 2 версия
+    // LValueList = ListOf<LValue, ",">
+    // LValueList(list) {
+    //     return list.asIteration().children.map((c: any) => c.parse());
+    // },
+
     // ExprList = Expr ("," Expr)*
     ExprList(first_expr, comma, rest_expr) {
         const tail = rest_expr ? rest_expr.map((r: any) => r[1]) : [];
         // const tail = rest_expr.children.map((r: any) => r.children[1].parse());
         return [first_expr, ...tail];
     },
+    // 2 версия
+    // ExprList = ListOf<Expr, ",">
+    // ExprList(list) {
+    //     return list.asIteration().children.map((c: any) => c.parse());
+    // },
+
     // LValue = variable "[" Expr "]" 
     LValue_array_access(name, leftbracket, expr: any, rightbracket) {
-        return { type: "larr", name: textOf(name), index: expr } as ast.ArrLValue;
+        return { type: "larr", name: name.sourceString, index: expr } as ast.ArrLValue;
     },
     // LValue = variable 
     LValue_variable(name) {
-        return { type: "lvar", name: textOf(name) } as ast.VarLValue;
+        return { type: "lvar", name: name.sourceString } as ast.VarLValue;
     },
     // Block = "{" Statement* "}"
     Block(left_brace, statements: any, right_brace) {
@@ -196,7 +227,7 @@ export const getFunnyAst = {
     /*---ВЫРАЖЕНИЯ/EXPRESSIONS---*/
     // FunctionCall = variable "(" ArgList? ")"
     FunctionCall(name, open_paren, arg_list, close_paren) {
-        const nameStr = textOf(name);
+        const nameStr = name.sourceString;
         const args = arg_list ? arg_list : [];
         // const args = opt(arg_list, []);
         return { type: "funccall", name: nameStr, args} as ast.FuncCallExpr;
@@ -209,7 +240,7 @@ export const getFunnyAst = {
     },
     // ArrayAccess = variable "[" Expr "]"
     ArrayAccess(name, left_bracket, expr: any, right_bracket) {
-        return { type: "arraccess", name: textOf(name), index: expr } as ast.ArrAccessExpr;
+        return { type: "arraccess", name: name.sourceString, index: expr } as ast.ArrAccessExpr;
     },
 
 
@@ -327,15 +358,17 @@ export const getFunnyAst = {
         "(" variable ":" Type "|" Predicate ")"
     */
     Quantifier(quant, left_paren, var_name, colon, var_type: any, bar, predicate: any, right_paren) {
-        return {kind: "quantifier", quant: textOf(quant), 
-            varName: textOf(var_name), 
+        return {
+            kind: "quantifier", 
+            quant: quant.sourceString, 
+            varName: var_name.sourceString, 
             varType: var_type, 
             body: predicate  
         } as ast.Quantifier;
     },
     // FormulaRef = variable "(" ArgList? ")"
     FormulaRef(name, open_paren, arg_list, close_paren) {
-        const nameStr = textOf(name);
+        const nameStr = name.sourceString;
         const args = arg_list ? arg_list : [];
         // const args = opt(arg_list, []);
         return { kind: "formula", name: nameStr, args} as ast.FormulaRef;

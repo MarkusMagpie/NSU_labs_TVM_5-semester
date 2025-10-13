@@ -10,9 +10,10 @@ Funny <: Arithmetic {
         UsesOpt? 
         Statement
 
-    // [] в EBNF формате означает что tis is optional 
     ParamList = Param ("," Param)*
+    // ParamList = ListOf<Param, ",">
     ParamListNonEmpty = Param ("," Param)*
+    // ParamListNonEmpty = ListOf<Param, ",">
     Param = variable ":" Type
     Preopt = "requires" Predicate 
     UsesOpt = "uses" ParamList 
@@ -32,7 +33,9 @@ Funny <: Arithmetic {
     Assignment = LValueList "=" ExprList ";"    -- tuple_assignment
         | LValue "=" Expr ";"                   -- simple_assignment
     LValueList = LValue ("," LValue)*
+    // LValueList = ListOf<LValue, ",">
     ExprList = Expr ("," Expr)*
+    // ExprList = ListOf<Expr, ",">
     // LValue - имя переменной или обращение к массиву
     LValue = variable "[" Expr "]"              -- array_access
         | variable                               -- variable
