@@ -9,12 +9,34 @@ function checkUniqueNames(items: ast.ParameterDef[] | ast.ParameterDef, kind: st
     const nameMap = new Map<string, number>();
     
     itemArray.forEach((item, idx) => {
-        console.log(item.name, typeof(item));
+        console.log(`checking ${kind}: ${item.name} at index ${idx}`);
         if (nameMap.has(item.name)) {
             throw new Error(`redeclaration of ${kind} '${item.name}' at position ${idx}`);
         }
         nameMap.set(item.name, idx);
     });
+}
+
+function collectNamesInNode(node: any, out: Set<string>) {
+    // node - CST-узел, обхожу его детей
+    if (node.children && Array.isArray(node.children)) {
+        for (const i of node.children) {
+            collectNamesInNode(i, out);
+        }
+    }
+    // node - массив, обхожу его
+    if (Array.isArray(node)) {
+        for (const elem of node) {
+            collectNamesInNode(elem, out);
+        }
+        return;
+    }
+
+    if (typeof node.sourceString === "string") {
+        if (/^[A-Za-z_]\w*$/.test(node.sourceString)) {
+            out.add(node.sourceString);
+        } 
+    }
 }
 
 export const getFunnyAst = {
@@ -39,47 +61,47 @@ export const getFunnyAst = {
         return {type: "param", name: name.sourceString} as ast.ParameterDef;
     },
     // ParamList = Param ("," Param)*
-    ParamList(first_param, comma, rest_params) {
-        // в каждом массиве [", ", Param] беру второй элемент - параметр
+    // ParamList(first_param, comma, rest_params) {
+    //     // в каждом массиве [", ", Param] беру второй элемент - параметр
         
-        // 1 версия
-        // const tail = rest_params.children.map((x: any) => x.parse());
-        // const params = [first_param, ...tail];
-        // checkUniqueNames(params, "parameter");
-        // return params;
+    //     // 1 версия
+    //     // const tail = rest_params.children.map((x: any) => x.parse());
+    //     // const params = [first_param, ...tail];
+    //     // checkUniqueNames(params, "parameter");
+    //     // return params;
 
-        // 2 версия
-        const first_param_parsed = (typeof(first_param.parse) !== "undefined") ? first_param.parse() : first_param;
-        const tail = rest_params.children.map((x: any) => {
-            return (typeof(x.parse) !== "undefined") ? x.parse() : x;
-        });
-        const params = [first_param_parsed, ...tail];
+    //     // 2 версия
+    //     const first_param_parsed = (typeof(first_param.parse) !== "undefined") ? first_param.parse() : first_param;
+    //     const tail = rest_params.children.map((x: any) => {
+    //         return (typeof(x.parse) !== "undefined") ? x.parse() : x;
+    //     });
+    //     const params = [first_param_parsed, ...tail];
+    //     checkUniqueNames(params, "parameter");
+    //     return params;
+    // },
+    // 3 версия
+    // ParamList = ListOf<Param, ",">
+    ParamList(list) {
+        const params = list.asIteration().children.map((c: any) => c.parse());
         checkUniqueNames(params, "parameter");
         return params;
     },
-    // 3 версия
-    // // ParamList = ListOf<Param, ",">
-    // ParamList(list) {
-    //     const params = list.asIteration().children.map((c: any) => c.parse());
-    //     checkUniqueNames(params, "parameter");
-    //     return params;
-    // },
     
     // ParamListNonEmpty = Param ("," Param)*
-    ParamListNonEmpty(first_param: any, comma, rest_params) {
-        // const tail = rest_params ? rest_params.map((x: any) => x[1]) : [];
-        const tail = rest_params.children.map((x: any) => x.parse());
-        const params = [first_param, ...tail];
-        checkUniqueNames(params, "return parameter");
-        return params;
-    },
-    // 2 версия
-    // // ParamListNonEmpty = ListOf<Param, ",">
-    // ParamListNonEmpty(list) {
-    //     const params = list.asIteration().children.map((c: any) => c.parse());
-    //     checkUniqueNames(params, "parameter");
+    // ParamListNonEmpty(first_param: any, comma, rest_params) {
+    //     // const tail = rest_params ? rest_params.map((x: any) => x[1]) : [];
+    //     const tail = rest_params.children.map((x: any) => x.parse());
+    //     const params = [first_param, ...tail];
+    //     checkUniqueNames(params, "return parameter");
     //     return params;
     // },
+    // 2 версия
+    // ParamListNonEmpty = ListOf<Param, ",">
+    ParamListNonEmpty(list) {
+        const params = list.asIteration().children.map((c: any) => c.parse());
+        checkUniqueNames(params, "parameter");
+        return params;
+    },
 
     // Preopt = "requires" Predicate 
     Preopt(requires_str, predicate) {
@@ -87,11 +109,30 @@ export const getFunnyAst = {
         return output;
     },
     // UsesOpt = "uses" ParamList 
-    UsesOpt(uses_str, params) {
-        // params уже массив из Param
-        const output = params ? params : [];
-        return output;
+    // // 1 версия 
+    // UsesOpt(uses_str, params) {
+    //     // params уже массив из Param
+    //     const output = params ? params : [];
+    //     return output;
+    // },
+    // // 2 версия
+    UsesOpt(uses_str, paramsNode) {
+        // paramsNode может быть CST-узлом или массивом 
+        if (!paramsNode) return [];
+
+        // 1 если CST-узел
+        if (typeof paramsNode.parse === "function") {
+            return paramsNode.parse();
+        }
+
+        // 2 если массив
+        if (Array.isArray(paramsNode)) {
+            return paramsNode.map((p: any) => (typeof p.parse === "function") ? p.parse() : p);
+        }
+        
+        return [];
     },
+
     /*
     Function = variable 
         "(" ParamList? ")" 
@@ -125,12 +166,34 @@ export const getFunnyAst = {
         const locals_array = (usesopt.children.length > 0) ? usesopt.children[0].parse() : [];
         const arr_locals_array = Array.isArray(locals_array) ? locals_array : [locals_array];
 
+        console.log("checking parameters: ");
         checkUniqueNames(arr_func_parameters, "parameter");
+        console.log("checking return values: ");
         checkUniqueNames(arr_return_array, "return value");
+        console.log("checking local variables: ");
         checkUniqueNames(arr_locals_array, "local variable");
 
         const all = [...arr_func_parameters, ...arr_return_array, ...arr_locals_array];
         checkUniqueNames(all, "variable");
+
+        // проверка локальных переменных тела функции
+        const declared = new Set<string>();
+        for (const i of func_parameters) {
+            declared.add(i.name);
+        }
+        for (const i of return_array) {
+            declared.add(i.name);
+        }
+        for (const i of locals_array) {
+            declared.add(i.name);
+        }
+        const used_in_body = new Set<string>();
+        collectNamesInNode(statement, used_in_body); // заполняю used_in_bidy
+        for (const name of used_in_body) {
+            if (!declared.has(name)) {
+                throw new Error("хуйня");
+            }
+        }
 
         return { type: "fun", 
             name: func_name, 
@@ -163,27 +226,27 @@ export const getFunnyAst = {
         return { type: "assign", targets: [target], exprs: [expr] } as ast.AssignStmt;
     },
     // LValueList = LValue ("," LValue)*
-    LValueList(first_value, comma, rest_value) {
-        const tail = rest_value ? rest_value.map((r: any) => r[1]) : [];
-        return [first_value, ...tail];
-    },
+    // LValueList(first_value, comma, rest_value) {
+    //     const tail = rest_value ? rest_value.map((r: any) => r[1]) : [];
+    //     return [first_value, ...tail];
+    // },
     // 2 версия
     // LValueList = ListOf<LValue, ",">
-    // LValueList(list) {
-    //     return list.asIteration().children.map((c: any) => c.parse());
-    // },
+    LValueList(list) {
+        return list.asIteration().children.map((c: any) => c.parse());
+    },
 
     // ExprList = Expr ("," Expr)*
-    ExprList(first_expr, comma, rest_expr) {
-        const tail = rest_expr ? rest_expr.map((r: any) => r[1]) : [];
-        // const tail = rest_expr.children.map((r: any) => r.children[1].parse());
-        return [first_expr, ...tail];
-    },
+    // ExprList(first_expr, comma, rest_expr) {
+    //     const tail = rest_expr ? rest_expr.map((r: any) => r[1]) : [];
+    //     // const tail = rest_expr.children.map((r: any) => r.children[1].parse());
+    //     return [first_expr, ...tail];
+    // },
     // 2 версия
     // ExprList = ListOf<Expr, ",">
-    // ExprList(list) {
-    //     return list.asIteration().children.map((c: any) => c.parse());
-    // },
+    ExprList(list) {
+        return list.asIteration().children.map((c: any) => c.parse());
+    },
 
     // LValue = variable "[" Expr "]" 
     LValue_array_access(name, leftbracket, expr: any, rightbracket) {
