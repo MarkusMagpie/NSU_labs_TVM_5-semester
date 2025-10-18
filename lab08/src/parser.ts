@@ -39,11 +39,11 @@ function collectNamesInNode(node: any, out: Set<string>) {
     }
 
     // node - CST-узел, обхожу его детей
-    if (node.children && Array.isArray(node.children)) {
-        for (const i of node.children) {
-            collectNamesInNode(i, out);
-        }
-    }
+    // if (node.children && Array.isArray(node.children)) {
+    //     for (const i of node.children) {
+    //         collectNamesInNode(i, out);
+    //     }
+    // }
 
     // node - массив AST-узлов, обхожу его
     if (Array.isArray(node)) {
@@ -55,34 +55,34 @@ function collectNamesInNode(node: any, out: Set<string>) {
 
     // ОБЪЯСНИ НА ЗНАЧЕ ПОЧЕМУ НУЖНО НА ПРИМЕРЕ ТЕСТА undeclareddLocalAccess
     // добавление имен из CST узлов!!! 
-    if (typeof node.sourceString === "string") {
-        let s = node.sourceString;
-        if (/^[A-Za-z_]\w*$/.test(s) && !reserved.includes(s)) {
-            out.add(node.sourceString);
-        } 
-    }
+    // if (typeof node.sourceString === "string") {
+    //     let s = node.sourceString;
+    //     if (/^[A-Za-z_]\w*$/.test(s) && !reserved.includes(s)) {
+    //         out.add(node.sourceString);
+    //     } 
+    // }
 
     // AST проверка конкретных узлов
 
-    // if (node.type === "funccall") {
-    //     console.log(`collectNamesInNode: ${node.name} is a function call`);
-    //     if (Array.isArray(node.args)) {
-    //         collectNamesInNode(node.args, out);
-    //     }
-    //     return;
-    // }
-    // if (node.type === "lvar") {
-    //     if (typeof node.name === "string") {
-    //         out.add(node.name);
-    //     }
-    //     return;
-    // }
-    // if (node.type === "larr") {
-    //     // имя массива добавляю
-    //     if (typeof node.name === "string") out.add(node.name);
-    //     collectNamesInNode(node.index, out);
-    //     return;
-    // }
+    if (node.type === "funccall") {
+        console.log(`collectNamesInNode: ${node.name} is a function call`);
+        if (Array.isArray(node.args)) {
+            collectNamesInNode(node.args, out);
+        }
+        return;
+    }
+    if (node.type === "lvar") {
+        if (typeof node.name === "string") {
+            out.add(node.name);
+        }
+        return;
+    }
+    if (node.type === "larr") {
+        // имя массива добавляю
+        if (typeof node.name === "string") out.add(node.name);
+        collectNamesInNode(node.index, out);
+        return;
+    }
 }
 
 function normalizeParamList(x: any): ast.ParameterDef[] {
@@ -108,30 +108,21 @@ function checkFunctionCalls(module: ast.Module) {
     // заполняю таблицу названиями функций и количеством их параметров
     for (const func of module.functions) {
         functionTable.set(func.name, func.parameters.length);
+        console.log(`function ${func.name} has ${func.parameters.length} parameters`);
     }
-    let visitedNodes = new Set();
-    
 
     function visitNode(node: any) {
         if (!node) return;
 
-        if (visitedNodes.has(node)) {
-            return;
-        }
-        visitedNodes.add(node);
-
-        if (Array.isArray(node)) {
-            // узел - массив -> обхожу все элементы
-            for (const item of node) {
-                visitNode(item);
-            }
-            return;
-        }
+        console.log(`visitNode: ${node.type} ${node.sourceString}`);
 
         // если узел вызов функции проверяю число параметров по таблице 
-        if (node._node && node._node.ctorName === 'FunctionCall') {
+        // (node._node && node._node.ctorName === 'FunctionCall') - CST проверка
+        if (node.type === "funccall") {
             const funcName = node.name;
             const argCount = node.args.length;
+            console.log(`visitNode: funccall ${funcName} has ${argCount} arguments`);
+
             if (!functionTable.has(funcName)) {
                 throw new Error(`visitNode: function ${funcName} is not declared`);
             }
@@ -140,10 +131,22 @@ function checkFunctionCalls(module: ast.Module) {
                 throw new Error(`visitNode: ошибкав количесте аргментво`);
             }
         }
+
+        if (node.type === "block") {
+            console.log(`visitNode: block with ${node.stmts.length} statements`);
+            if (Array.isArray(node.stmts)) {
+                node.stmts.forEach(visitNode);
+            }
+        } else if (node.type === "assign") {
+            // обходим выражения в правой части присваивания
+            console.log(`visitNode: assign with ${node.exprs.length} expressions`);
+            if (Array.isArray(node.exprs)) {
+                node.exprs.forEach(visitNode);
+            }
+        }
     }
 
     for (const func of module.functions) {
-        visitedNodes = new Set();
         visitNode(func.body);   
     }
 }
@@ -321,7 +324,8 @@ export const getFunnyAst = {
             declared.add(i.name);
         }
         const used_in_body = new Set<string>();
-        collectNamesInNode(statement, used_in_body); // заполняю used_in_bidy
+        const parsedStatement = statement.parse();
+        collectNamesInNode(parsedStatement, used_in_body); // заполняю used_in_bidy
         for (const name of used_in_body) {
             if (!declared.has(name)) {
                 throw new Error("Function: локальная переменная " + name + " не объявлена");
@@ -333,7 +337,7 @@ export const getFunnyAst = {
             parameters: arr_func_parameters, 
             returns: arr_return_array, 
             locals: arr_locals_array, 
-            body: statement } as ast.FunctionDef;
+            body: parsedStatement } as ast.FunctionDef;
     },
 
     Type_int(arg0) {
@@ -391,8 +395,12 @@ export const getFunnyAst = {
     },
     // Block = "{" Statement* "}"
     Block(left_brace, statements: any, right_brace) {
-        const stmts_list = statements ? statements : [];
-        // const stmts_list = statements.children.map((c: any) => c.parse());
+        console.log("Block: ", statements);
+        // // AST
+        // const stmts_list = Array.isArray(statements) ? statements : [statements];
+        // // CST
+        const stmts_list: ast.Statement[] = statements.children.map((c: any) => c.parse());
+        console.log("Block: ", stmts_list);
         return { type: "block", stmts: stmts_list } as ast.BlockStmt;
     },
     // Conditional = "if" "(" Condition ")" Statement ("else" Statement)?
@@ -425,13 +433,25 @@ export const getFunnyAst = {
     // FunctionCall = variable "(" ArgList? ")"
     FunctionCall(name, open_paren, arg_list, close_paren) {
         const nameStr = name.sourceString;
-        const args = Array.isArray(arg_list) ? arg_list : [arg_list];
+        // const args = Array.isArray(arg_list) ? arg_list : [arg_list];
+        const args = (arg_list && arg_list.parse) ? arg_list.parse() : [];
         return { type: "funccall", name: nameStr, args} as ast.FuncCallExpr;
     },
     // ArgList = Expr ("," Expr)*
     ArgList(first_expr, comma, rest_expr_list) {
-        const tail = first_expr ? rest_expr_list.map((r: any) => r[1]) : [];
-        return [first_expr, ...tail];
+        // const tail = rest_expr_list ? rest_expr_list.map((r: any) => r[1]) : [];
+        // const tail = rest_expr_list.children ? rest_expr_list.children.map((r: any) => r.children[1].parse()) : [];
+        // return [first_expr.parse(), ...tail];
+
+        const args = [first_expr.parse()];
+        if (rest_expr_list && rest_expr_list.children) {
+            rest_expr_list.children.forEach((child: any) => {
+                if (child.children && child.children.length > 1) {
+                    args.push(child.children[1].parse());
+                }
+            });
+        }
+        return args;
     },
     // ArrayAccess = variable "[" Expr "]"
     ArrayAccess(name, left_bracket, expr: any, right_bracket) {
