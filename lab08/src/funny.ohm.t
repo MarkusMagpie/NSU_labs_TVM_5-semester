@@ -4,7 +4,7 @@ Funny <: Arithmetic {
     Module = Function+
 
     Function = variable 
-        "(" ParamList? ")" 
+        "(" ParamList ")" 
         Preopt? 
         "returns" ParamListNonEmpty 
         UsesOpt? 
@@ -44,7 +44,7 @@ Funny <: Arithmetic {
     // условный опреатор
     Conditional = "if" "(" Condition ")" Statement ("else" Statement)?
     // оператор цикла
-    While = "while" "(" Condition ")" InvariantOpt Statement
+    While = "while" "(" Condition ")" InvariantOpt? Statement
     InvariantOpt = "invariant" Predicate 
 
 

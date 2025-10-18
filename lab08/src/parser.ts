@@ -9,6 +9,9 @@ function checkUniqueNames(items: ast.ParameterDef[] | ast.ParameterDef, kind: st
     const nameMap = new Map<string, number>();
     
     itemArray.forEach((item, idx) => {
+        if (!item || typeof item.name !== "string") {
+            throw new Error("checkUniqueNames: undefined name");
+        }
         console.log(`checking ${kind}: ${item.name} at index ${idx}`);
         if (nameMap.has(item.name)) {
             throw new Error(`redeclaration of ${kind} '${item.name}' at position ${idx}`);
@@ -18,13 +21,25 @@ function checkUniqueNames(items: ast.ParameterDef[] | ast.ParameterDef, kind: st
 }
 
 function collectNamesInNode(node: any, out: Set<string>) {
+    const reserved = ["if", "else", "while", "for", "returns", "uses", "requires", "invariant"];
+
+    if (node._node && node._node.ctorName === 'FunctionCall') {
+        // FunctionCall = variable "(" ArgList? ")"
+        if (node.children && node.children.length >= 3) {
+            const argsNode = node.children[2]; // ArgList
+            if (argsNode) collectNamesInNode(argsNode, out);
+        }
+        return;
+    }
+
     // node - CST-узел, обхожу его детей
     if (node.children && Array.isArray(node.children)) {
         for (const i of node.children) {
             collectNamesInNode(i, out);
         }
     }
-    // node - массив, обхожу его
+
+    // node - массив AST-узлов, обхожу его
     if (Array.isArray(node)) {
         for (const elem of node) {
             collectNamesInNode(elem, out);
@@ -32,10 +47,75 @@ function collectNamesInNode(node: any, out: Set<string>) {
         return;
     }
 
+    // ОБЪЯСНИ НА ЗНАЧЕ ПОЧЕМУ НУЖНО НА ПРИМЕРЕ ТЕСТА undeclareddLocalAccess
+    // добавление имен из CST узлов!!! 
     if (typeof node.sourceString === "string") {
-        if (/^[A-Za-z_]\w*$/.test(node.sourceString)) {
+        let s = node.sourceString;
+        if (/^[A-Za-z_]\w*$/.test(s) && !reserved.includes(s)) {
             out.add(node.sourceString);
         } 
+    }
+
+    // AST проверка конкретных узлов
+
+    // if (node.type === "funccall") {
+    //     console.log(`collectNamesInNode: ${node.name} is a function call`);
+    //     if (Array.isArray(node.args)) {
+    //         collectNamesInNode(node.args, out);
+    //     }
+    //     return;
+    // }
+    // if (node.type === "lvar") {
+    //     if (typeof node.name === "string") {
+    //         out.add(node.name);
+    //     }
+    //     return;
+    // }
+    // if (node.type === "larr") {
+    //     // имя массива добавляю
+    //     if (typeof node.name === "string") out.add(node.name);
+    //     collectNamesInNode(node.index, out);
+    //     return;
+    // }
+}
+
+function normalizeParamList(x: any): ast.ParameterDef[] {
+    if (!x) return [];
+
+    // если уже массив то верну как есть
+    if (Array.isArray(x)) {
+        // [[p,p]] -> вернуть первый элемент
+        if (x.length === 1 && Array.isArray(x[0])) {
+            return x[0];
+        }
+
+        return x;
+    }
+
+    // если единичный параметр
+    return [x];
+}
+
+function checkFunctionCalls(module: ast.Module) {
+    const functionTable = new Map<string, number>();
+    // заполняю таблицу названиями функций и количеством их параметров
+    for (const func of module.functions) {
+        functionTable.set(func.name, func.parameters.length);
+    }
+
+    for (const func of module.functions) {
+        let node: any = func.body;
+        if (node._node && node._node.ctorName === 'FunctionCall') {
+            const funcName = node.name;
+            const argCount = node.args.length;
+            if (!functionTable.has(funcName)) {
+                throw new Error(`visitNode: function ${funcName} is not declared`);
+            }
+            const expectedArgCount = functionTable.get(funcName)!;
+            if (argCount !== expectedArgCount) {
+                throw new Error(`visitNode: ошибкав количесте аргментво`);
+            }
+        }
     }
 }
 
@@ -58,7 +138,11 @@ export const getFunnyAst = {
     }
     */
     Param(name, colon, type: any) {
-        return {type: "param", name: name.sourceString} as ast.ParameterDef;
+        let paramName = name.sourceString;
+        if (!paramName) {
+            throw new Error("Param: undefined name");
+        }
+        return {type: "param", name: paramName} as ast.ParameterDef;
     },
     // ParamList = Param ("," Param)*
     // ParamList(first_param, comma, rest_params) {
@@ -101,6 +185,20 @@ export const getFunnyAst = {
         const params = list.asIteration().children.map((c: any) => c.parse());
         checkUniqueNames(params, "parameter");
         return params;
+    },
+    EmptyListOf() {
+        return [];
+    },
+    NonemptyListOf(first_param: any, comma, rest_params) {
+        const tail = rest_params.children.map((x: any) => x.parse());
+        const params = [first_param, ...tail];
+        checkUniqueNames(params, "parameter");
+        return params;
+    },
+    // для итерационных узлов (*, +)
+    // https://ohmjs.org/docs/releases/ohm-js-16.0#default-semantic-actions
+    _iter(...children) {
+        return children.map((x: any) => x.parse());
     },
 
     // Preopt = "requires" Predicate 
@@ -155,43 +253,49 @@ export const getFunnyAst = {
     Function(var_name, left_paren, params_opt, right_paren, preopt, returns_str, returns_list, usesopt, statement: any) {
         const func_name = var_name.sourceString;
 
-        const func_parameters = (params_opt.children.length > 0) ? params_opt.children[0].parse() : [];
-        const arr_func_parameters = Array.isArray(func_parameters) ? func_parameters : [func_parameters];
+        const func_parameters = (params_opt.children.length > 0) ? params_opt.parse() : [];
+        const arr_func_parameters = normalizeParamList(func_parameters);
 
         const preopt_ast = preopt ? preopt : null; // предусловие функции
 
         const return_array = returns_list.parse();
-        const arr_return_array = Array.isArray(return_array) ? return_array : [return_array];
+        const arr_return_array = normalizeParamList(return_array);
         
-        const locals_array = (usesopt.children.length > 0) ? usesopt.children[0].parse() : [];
-        const arr_locals_array = Array.isArray(locals_array) ? locals_array : [locals_array];
+        const locals_array = (usesopt.children.length > 0) ? usesopt.parse() : [];
+        const arr_locals_array = normalizeParamList(locals_array);
 
-        console.log("checking parameters: ");
-        checkUniqueNames(arr_func_parameters, "parameter");
-        console.log("checking return values: ");
-        checkUniqueNames(arr_return_array, "return value");
-        console.log("checking local variables: ");
-        checkUniqueNames(arr_locals_array, "local variable");
+        if (arr_func_parameters.length !== 0) {
+            console.log("checking parameters: ");
+            checkUniqueNames(arr_func_parameters, "parameter");
+        }
+        if (arr_return_array.length !== 0) {
+            console.log("checking return values: ");
+            checkUniqueNames(arr_return_array, "return value");
+        }
+        if (arr_locals_array.length !== 0) {
+            console.log("checking local variables: ");
+            checkUniqueNames(arr_locals_array, "local variable");
+        }
 
         const all = [...arr_func_parameters, ...arr_return_array, ...arr_locals_array];
         checkUniqueNames(all, "variable");
 
         // проверка локальных переменных тела функции
         const declared = new Set<string>();
-        for (const i of func_parameters) {
+        for (const i of arr_func_parameters) {
             declared.add(i.name);
         }
-        for (const i of return_array) {
+        for (const i of arr_return_array) {
             declared.add(i.name);
         }
-        for (const i of locals_array) {
+        for (const i of arr_locals_array) {
             declared.add(i.name);
         }
         const used_in_body = new Set<string>();
         collectNamesInNode(statement, used_in_body); // заполняю used_in_bidy
         for (const name of used_in_body) {
             if (!declared.has(name)) {
-                throw new Error("хуйня");
+                throw new Error("Function: локальная переменная " + name + " не объявлена");
             }
         }
 
@@ -276,9 +380,10 @@ export const getFunnyAst = {
         // const _else_branch = _else.children.length ? _else.children[1].parse() : null;
         return { type: "if", condition: condition, then: _then_statement, else: _else_statement } as ast.ConditionalStmt;
     },
-    // While = "while" "(" Condition ")" InvariantOpt Statement
+    // While = "while" "(" Condition ")" InvariantOpt? Statement
     While(_while, left_paren, condition: any, right_paren, inv: any, _then: any) {
-        return { type: "while", condition: condition, invariant: inv, body: _then } as ast.WhileStmt;
+        const invariant = inv.children.length > 0 ? inv.children[0].parse() : null;
+        return { type: "while", condition: condition, invariant: invariant, body: _then } as ast.WhileStmt;
     },
     // InvariantOpt = "invariant" Predicate
     InvariantOpt(_inv: any, predicate: any) {
@@ -291,14 +396,12 @@ export const getFunnyAst = {
     // FunctionCall = variable "(" ArgList? ")"
     FunctionCall(name, open_paren, arg_list, close_paren) {
         const nameStr = name.sourceString;
-        const args = arg_list ? arg_list : [];
-        // const args = opt(arg_list, []);
+        const args = Array.isArray(arg_list) ? arg_list : [arg_list];
         return { type: "funccall", name: nameStr, args} as ast.FuncCallExpr;
     },
     // ArgList = Expr ("," Expr)*
     ArgList(first_expr, comma, rest_expr_list) {
         const tail = first_expr ? rest_expr_list.map((r: any) => r[1]) : [];
-        // const tail = rest_expr_list.children.map((r: any) => r.children[1].parse());
         return [first_expr, ...tail];
     },
     // ArrayAccess = variable "[" Expr "]"
@@ -458,5 +561,7 @@ export function parseFunny(source: string): ast.Module
         throw new SyntaxError(matchResult.message);
     }
 
-    return semantics(matchResult).parse();
+    const ast_module = semantics(matchResult).parse();
+    checkFunctionCalls(ast_module);
+    return ast_module;
 }
