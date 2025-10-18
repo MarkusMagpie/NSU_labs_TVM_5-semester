@@ -23,6 +23,12 @@ function checkUniqueNames(items: ast.ParameterDef[] | ast.ParameterDef, kind: st
 function collectNamesInNode(node: any, out: Set<string>) {
     const reserved = ["if", "else", "while", "for", "returns", "uses", "requires", "invariant"];
 
+    /*
+    у каждого узла CST есть свойство _node, которое содержит внутреннее представление узла.
+    Свойство ctorName - The name of grammar rule that created the node.
+    https://ohmjs.org/docs/api-reference
+    */
+
     if (node._node && node._node.ctorName === 'FunctionCall') {
         // FunctionCall = variable "(" ArgList? ")"
         if (node.children && node.children.length >= 3) {
@@ -96,15 +102,33 @@ function normalizeParamList(x: any): ast.ParameterDef[] {
     return [x];
 }
 
+// работа с AST -> никаких детей не делаю
 function checkFunctionCalls(module: ast.Module) {
     const functionTable = new Map<string, number>();
     // заполняю таблицу названиями функций и количеством их параметров
     for (const func of module.functions) {
         functionTable.set(func.name, func.parameters.length);
     }
+    let visitedNodes = new Set();
+    
 
-    for (const func of module.functions) {
-        let node: any = func.body;
+    function visitNode(node: any) {
+        if (!node) return;
+
+        if (visitedNodes.has(node)) {
+            return;
+        }
+        visitedNodes.add(node);
+
+        if (Array.isArray(node)) {
+            // узел - массив -> обхожу все элементы
+            for (const item of node) {
+                visitNode(item);
+            }
+            return;
+        }
+
+        // если узел вызов функции проверяю число параметров по таблице 
         if (node._node && node._node.ctorName === 'FunctionCall') {
             const funcName = node.name;
             const argCount = node.args.length;
@@ -116,6 +140,11 @@ function checkFunctionCalls(module: ast.Module) {
                 throw new Error(`visitNode: ошибкав количесте аргментво`);
             }
         }
+    }
+
+    for (const func of module.functions) {
+        visitedNodes = new Set();
+        visitNode(func.body);   
     }
 }
 
