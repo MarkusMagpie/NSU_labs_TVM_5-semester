@@ -54,8 +54,9 @@ Funny <: Arithmetic {
         | ArrayAccess
         | ...
     // вызов функции 
-    FunctionCall = variable "(" ArgList? ")"
-    ArgList = Expr ("," Expr)*
+    FunctionCall = variable "(" ArgList ")"
+    // ArgList = Expr ("," Expr)*
+    ArgList = ListOf<Expr, ",">
     // обращение к элементу массива
     ArrayAccess = variable "[" Expr "]"
 
