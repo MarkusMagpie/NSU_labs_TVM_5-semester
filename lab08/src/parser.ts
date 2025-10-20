@@ -66,7 +66,7 @@ function collectNamesInNode(node: any, out: Set<string>) {
             }
             break;
 
-        // арифметических выражений
+        // арифметические выражения
         case "var":
             if (typeof node.name === "string") {
                 // console.log(`collectNamesInNode: found var ${node.name}`);
@@ -165,9 +165,6 @@ export const getFunnyAst = {
     // Param = variable ":" Type
     Param(name, colon, type: any) {
         let paramName = name.sourceString;
-        if (!paramName) {
-            throw new Error("Param: undefined name");
-        }
         return {type: "param", name: paramName} as ast.ParameterDef;
     },
     // ParamList = ListOf<Param, ",">
@@ -182,41 +179,14 @@ export const getFunnyAst = {
         checkUniqueNames(params, "parameter");
         return params;
     },
-    EmptyListOf() {
-        return [];
-    },
-    NonemptyListOf(first_param: any, comma, rest_params) {
-        const tail = rest_params.children.map((x: any) => x.parse());
-        const params = [first_param, ...tail];
-        checkUniqueNames(params, "parameter");
-        return params;
-    },
-    // для итерационных узлов (*, +)
-    // https://ohmjs.org/docs/releases/ohm-js-16.0#default-semantic-actions
-    _iter(...children) {
-        return children.map((x: any) => x.parse());
-    },
     // Preopt = "requires" Predicate 
     Preopt(requires_str, predicate) {
-        const output = predicate ? predicate : null;
-        return output;
+        return predicate;
     },
     // UsesOpt = "uses" ParamList 
     UsesOpt(uses_str, paramsNode) {
-        // paramsNode может быть CST-узлом или массивом 
-        if (!paramsNode) return [];
-
-        // 1 если CST-узел
-        if (typeof paramsNode.parse === "function") {
-            return paramsNode.parse();
-        }
-
-        // 2 если массив
-        if (Array.isArray(paramsNode)) {
-            return paramsNode.map((p: any) => (typeof p.parse === "function") ? p.parse() : p);
-        }
-        
-        return [];
+        const params = paramsNode.asIteration().children.map((c: any) => c.parse());
+        return params;
     },
     Function(var_name, left_paren, params_opt, right_paren, preopt, returns_str, returns_list, usesopt, statement: any) {
         const func_name = var_name.sourceString;
@@ -225,10 +195,11 @@ export const getFunnyAst = {
 
         const preopt_ast = preopt.parse ? preopt : null; // предусловие функции
 
-        const arr_return_array = returns_list.asIteration().children.map(x => x.parse());
+        const arr_return_array = returns_list.asIteration().children.map(x => x.parse()) as ast.ParameterDef[];
         
-        const arr_locals_array = usesopt.children.length 
-        ? usesopt.children[0].children[1].asIteration().children.map((x: any) => x.parse())
+        // UsesOpt = ("uses" ParamList)? 
+        const arr_locals_array = usesopt.children.length > 0
+        ? usesopt.children[0].children[1].asIteration().children.map((x: any) => x.parse()) as ast.ParameterDef[]
         : [];
 
         if (arr_func_parameters.length !== 0) {
@@ -259,7 +230,7 @@ export const getFunnyAst = {
             declared.add(i.name);
         }
         const used_in_body = new Set<string>();
-        const parsedStatement = statement.parse();
+        const parsedStatement = statement.parse() as ast.Statement;
         collectNamesInNode(parsedStatement, used_in_body); // заполняю used_in_bidy
         for (const name of used_in_body) {
             if (!declared.has(name)) {
@@ -284,7 +255,7 @@ export const getFunnyAst = {
 
 
 
-    /*STATEMENTS/ОПЕРАТОРЫ*/
+    // STATEMENTS/ОПЕРАТОРЫ
     // Assignment = LValueList "=" ExprList ";"
     Assignment_tuple_assignment(ltargertlist: any, equals, rexprlist: any, semi) {
         const targets = ltargertlist.parse();
@@ -315,18 +286,14 @@ export const getFunnyAst = {
     },
     // Block = "{" Statement* "}"
     Block(left_brace, statements: any, right_brace) {
-        // console.log("Block: ", statements);
-        // // AST
-        // const stmts_list = Array.isArray(statements) ? statements : [statements];
-        // // CST
-        const stmts_list: ast.Statement[] = statements.children.map((c: any) => c.parse());
-        // console.log("Block parsed: ", stmts_list);
+        const stmts_list = statements.children.length > 0
+        ? statements.children.map((c: any) => c.parse())
+        : [];
         return { type: "block", stmts: stmts_list } as ast.BlockStmt;
     },
     // Conditional = "if" "(" Condition ")" Statement ("else" Statement)?
     Conditional(_if, left_paren, condition: any, right_paren, _then_statement: any, _else, else_statement: any) {
-        let _else_statement = _else ? else_statement : null;
-        // const _else_statement = _else.children.length ? _else.children[1].parse() : null;
+        let _else_statement = _else.children.length > 0 ? else_statement.children[0].parse() : null;
         return { type: "if", condition: condition, then: _then_statement, else: _else_statement } as ast.ConditionalStmt;
     },
     // While = "while" "(" Condition ")" InvariantOpt? Statement
@@ -335,18 +302,17 @@ export const getFunnyAst = {
         return { type: "while", condition: condition, invariant: invariant, body: _then } as ast.WhileStmt;
     },
     // InvariantOpt = "invariant" Predicate
-    InvariantOpt(_inv: any, predicate: any) {
+    InvariantOpt(_inv, predicate: any) {
         return predicate;
     },
 
 
 
-    /*---ВЫРАЖЕНИЯ/EXPRESSIONS---*/
-    // FunctionCall = variable "(" ArgList? ")"
+    // ВЫРАЖЕНИЯ/EXPRESSIONS
+    // FunctionCall = variable "(" ArgList ")"
     FunctionCall(name, open_paren, arg_list, close_paren) {
         const nameStr = name.sourceString;
-        // const args = Array.isArray(arg_list) ? arg_list : [arg_list];
-        const args = (typeof arg_list.parse !== "undefined") ? arg_list.parse() : arg_list;
+        const args = arg_list.children.length > 0 ? arg_list.asIteration().children.map((x: any) => x.parse()) : [];
         return { type: "funccall", name: nameStr, args} as ast.FuncCallExpr;
     },
     // ArgList = ListOf<Expr, ",">
@@ -361,7 +327,7 @@ export const getFunnyAst = {
 
 
 
-    /*---CONDITIONS+COMPARISONS---*/
+    // CONDITIONS+COMPARISONS
     // Condition = "true"
     Condition_true(t) {
         return { kind: "true" } as ast.TrueCond;
@@ -372,7 +338,6 @@ export const getFunnyAst = {
     },
     // Condition = Comparison
     Condition_comparison(arg0) {
-        // return {kind: "comparison",  } as ast.ComparisonCond;
         return arg0;
     },
     // Condition = "not" Condition
@@ -389,8 +354,6 @@ export const getFunnyAst = {
     },
     // Condition = Condition "->" Condition
     Condition_implies(cond1: any, implies, cond2: any) {
-        // return { kind: "implies", left: cond1, right: cond2 } as ast.ImpliesCond;
-        
         // A -> B = (!A) or B 
         let cond1_not = { kind: 'not', condition: cond1 as ast.Condition } as ast.NotCond;
         return { kind: 'or', left: cond1_not, right: cond2 } as ast.OrCond;
@@ -399,7 +362,6 @@ export const getFunnyAst = {
     Condition_paren(left_paren, cond: any, right_paren) {
         return { kind: "paren", inner: cond } as ast.ParenCond;
     },
-
     /*
     Comparison = Expr "==" Expr                 -- eq
         | Expr "!=" Expr                        -- neq
@@ -429,7 +391,7 @@ export const getFunnyAst = {
 
 
 
-    /*---ПРЕДИКАТЫ---*/
+    // ПРЕДИКАТЫ
     /*
     Predicate = Quantifier                      -- quantifier
         | FormulaRef                            -- formula_ref
@@ -447,7 +409,6 @@ export const getFunnyAst = {
     Predicate_formula_ref(arg0) {
         return arg0;
     },
-    // ниже - копия из Condition
     Predicate_true(t) {
         return { kind: "true" } as ast.TrueCond;
     },

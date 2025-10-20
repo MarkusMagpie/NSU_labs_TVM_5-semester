@@ -10,9 +10,7 @@ Funny <: Arithmetic {
         UsesOpt? 
         Statement
 
-    // ParamList = Param ("," Param)*
     ParamList = ListOf<Param, ",">
-    // ParamListNonEmpty = Param ("," Param)*
     ParamListNonEmpty = ListOf<Param, ",">
     Param = variable ":" Type
     Preopt = "requires" Predicate 
@@ -28,13 +26,10 @@ Funny <: Arithmetic {
         | Block
         | Conditional
         | While
-
     // прсваивание - обращение к массиву или кортежное присваивание из вызова функции
     Assignment = LValueList "=" ExprList ";"    -- tuple_assignment
         | LValue "=" Expr ";"                   -- simple_assignment
-    // LValueList = LValue ("," LValue)*
     LValueList = ListOf<LValue, ",">
-    // ExprList = Expr ("," Expr)*
     ExprList = ListOf<Expr, ",">
     // LValue - имя переменной или обращение к массиву
     LValue = variable "[" Expr "]"              -- array_access

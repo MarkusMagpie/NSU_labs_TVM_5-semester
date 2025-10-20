@@ -5,7 +5,7 @@ export interface Module
     type: "module";
     functions: FunctionDef[]
 }
-/*---ФУНКЦИИ И ТИПЫ---*/
+// ФУНКЦИИ И ТИПЫ
 export interface FunctionDef
 {
     type: "fun";
@@ -24,7 +24,7 @@ export interface ParameterDef
 
 
 
-/*---STATEMENTS/ОПЕРАТОРЫ---*/
+// STATEMENTS/ОПЕРАТОРЫ
 export type Statement = AssignStmt | BlockStmt | ConditionalStmt | WhileStmt;
 
 export type LValue = VarLValue | ArrLValue;
@@ -37,7 +37,6 @@ export interface ArrLValue {
   name: string;
   index: Expr;
 }
-
 export interface AssignStmt {
     type: "assign";
     targets: LValue[];
@@ -62,7 +61,7 @@ export interface WhileStmt {
 
 
 
-/*---ВЫРАЖЕНИЯ/EXPRESSIONS---*/
+// ВЫРАЖЕНИЯ/EXPRESSIONS
 export type Expr = arith.Expr | FuncCallExpr | ArrAccessExpr;
 export interface FuncCallExpr {
     type: "funccall";
@@ -77,7 +76,7 @@ export interface ArrAccessExpr {
 
 
 
-/*---CONDITIONS---*/
+// CONDITIONS
 export type Condition = TrueCond | FalseCond | ComparisonCond | NotCond | AndCond | OrCond | ImpliesCond |  ParenCond;
 export interface TrueCond {
     kind: "true";
@@ -117,7 +116,7 @@ export interface ParenCond {
 
 
 
-/*---ПРЕДИКАТЫ---*/
+// ПРЕДИКАТЫ
 export type Predicate = Quantifier | FormulaRef;
 export interface Quantifier {
     kind: "quantifier";
