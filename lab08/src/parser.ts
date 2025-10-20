@@ -12,7 +12,7 @@ function checkUniqueNames(items: ast.ParameterDef[] | ast.ParameterDef, kind: st
         if (!item || typeof item.name !== "string") {
             throw new Error("checkUniqueNames: undefined name");
         }
-        console.log(`checking ${kind}: ${item.name} at index ${idx}`);
+        // console.log(`checking ${kind}: ${item.name} at index ${idx}`);
         if (nameMap.has(item.name)) {
             throw new Error(`redeclaration of ${kind} '${item.name}' at position ${idx}`);
         }
@@ -31,8 +31,6 @@ function collectNamesInNode(node: any, out: Set<string>) {
         return;
     }
 
-
-
     // AST проверка конкретных узлов
     switch (node.type) {
         case "block":
@@ -50,19 +48,19 @@ function collectNamesInNode(node: any, out: Set<string>) {
             break;
         case "lvar":
             if (typeof node.name === "string") {
-                console.log(`collectNamesInNode: found lvar ${node.name}`);
+                // console.log(`collectNamesInNode: found lvar ${node.name}`);
                 out.add(node.name);
             }
             break;
         case "larr":
             if (typeof node.name === "string") {
-                console.log(`collectNamesInNode: found larr ${node.name}`);
+                // console.log(`collectNamesInNode: found larr ${node.name}`);
                 out.add(node.name);
             }
             collectNamesInNode(node.index, out);
             break; 
         case "funccall":
-            console.log(`collectNamesInNode: ${node.name} is a function call`);
+            // console.log(`collectNamesInNode: ${node.name} is a function call`);
             if (Array.isArray(node.args)) {
                 node.args.forEach((arg: any) => collectNamesInNode(arg, out));
             }
@@ -71,7 +69,7 @@ function collectNamesInNode(node: any, out: Set<string>) {
         // арифметических выражений
         case "var":
             if (typeof node.name === "string") {
-                console.log(`collectNamesInNode: found var ${node.name}`);
+                // console.log(`collectNamesInNode: found var ${node.name}`);
                 out.add(node.name);
             }
             break;
@@ -90,53 +88,57 @@ function collectNamesInNode(node: any, out: Set<string>) {
 }
 
 function checkFunctionCalls(module: ast.Module) {
-    const functionTable = new Map<string, { paramCount: number, returnCount: number }>();
+    const functionTable = new Map<string, { params: number, returns: number }>();
     // заполняю таблицу названиями функций, количеством параметров и возвращаемых значений
     for (const func of module.functions) {
         functionTable.set(func.name, { 
-            paramCount: func.parameters.length, 
-            returnCount: func.returns.length 
+            params: func.parameters.length, 
+            returns: func.returns.length 
         });
-        console.log(`function ${func.name} has ${func.parameters.length} parameters and returns ${func.returns.length} values`);
     }
 
     function visitNode(node: any, context: { expectedReturns?: number } = {}) {
         if (!node) return;
 
-        console.log(`visitNode: ${node.type}`);
-
         // если узел вызов функции проверяю число параметров по таблице 
         if (node.type === "funccall") {
             const funcName = node.name;
             const argCount = node.args.length;
-            console.log(`visitNode: funccall ${funcName} has ${argCount} arguments`);
+            // console.log(`visitNode: funccall ${funcName} has ${argCount} arguments`);
 
             if (!functionTable.has(funcName)) {
                 throw new Error(`function ${funcName} is not declared`);
             }
             
             const funcInfo = functionTable.get(funcName)!;
-            const expectedArgCount = funcInfo.paramCount;
+
+            const expectedArgCount = funcInfo.params;
             if (argCount !== expectedArgCount) {
-                throw new Error(`function ${funcName} expects ${expectedArgCount} arguments, but ${argCount} were given`);
+                throw new Error();
             }
 
-            const actualReturns = funcInfo.returnCount;
+            const returnsCount = funcInfo.returns;
             const expectedReturns = context.expectedReturns;
-            if (actualReturns !== expectedReturns) {
-                throw new Error(`function ${funcName} returns ${actualReturns} values but ${expectedReturns} expected in this context`);
+            if (returnsCount !== expectedReturns) {
+                throw new Error();
             }
-        }
 
-        if (node.type === "block") {
-            console.log(`visitNode: block with ${node.stmts.length} statements`);
+            if (Array.isArray(node.args)) {
+                for (const arg of node.args) {
+                    // если аргумент - вызов функции он должен вернуть ровно 1 значение
+                    visitNode(arg, { expectedReturns: 1 });
+                }
+            }
+
+            return;
+        } else if (node.type === "block") {
+            // console.log(`visitNode: block with ${node.stmts.length} statements`);
             if (Array.isArray(node.stmts)) {
                 node.stmts.forEach((stmt: any) => visitNode(stmt));
             }
-        }
-        else if (node.type === "assign") {
-            // обходим выражения в правой части присваивания
-            console.log(`visitNode: assign with ${node.exprs.length} expressions`);
+        } else if (node.type === "assign") {
+            // выражения в правой части присваивания
+            // console.log(`visitNode: assign with ${node.exprs.length} expressions`);
             if (Array.isArray(node.exprs)) {
                 const targetsReturns = node.targets.length;
                 if (Array.isArray(node.exprs)) {
@@ -152,10 +154,8 @@ function checkFunctionCalls(module: ast.Module) {
 }
 
 export const getFunnyAst = {
-    // write rules here
     ...getExprAst,
 
-    /*FUNCTIONS*/
     // Module = Function+
     Module(funcs) {
         const functions = funcs.children.map((x: any) => x.parse());
@@ -170,42 +170,12 @@ export const getFunnyAst = {
         }
         return {type: "param", name: paramName} as ast.ParameterDef;
     },
-    // ParamList = Param ("," Param)*
-    // ParamList(first_param, comma, rest_params) {
-    //     // в каждом массиве [", ", Param] беру второй элемент - параметр
-        
-    //     // 1 версия
-    //     // const tail = rest_params.children.map((x: any) => x.parse());
-    //     // const params = [first_param, ...tail];
-    //     // checkUniqueNames(params, "parameter");
-    //     // return params;
-
-    //     // 2 версия
-    //     const first_param_parsed = (typeof(first_param.parse) !== "undefined") ? first_param.parse() : first_param;
-    //     const tail = rest_params.children.map((x: any) => {
-    //         return (typeof(x.parse) !== "undefined") ? x.parse() : x;
-    //     });
-    //     const params = [first_param_parsed, ...tail];
-    //     checkUniqueNames(params, "parameter");
-    //     return params;
-    // },
-    // 3 версия
     // ParamList = ListOf<Param, ",">
     ParamList(list) {
         const params = list.asIteration().children.map((c: any) => c.parse());
         checkUniqueNames(params, "parameter");
         return params;
     },
-    
-    // ParamListNonEmpty = Param ("," Param)*
-    // ParamListNonEmpty(first_param: any, comma, rest_params) {
-    //     // const tail = rest_params ? rest_params.map((x: any) => x[1]) : [];
-    //     const tail = rest_params.children.map((x: any) => x.parse());
-    //     const params = [first_param, ...tail];
-    //     checkUniqueNames(params, "return parameter");
-    //     return params;
-    // },
-    // 2 версия
     // ParamListNonEmpty = ListOf<Param, ",">
     ParamListNonEmpty(list) {
         const params = list.asIteration().children.map((c: any) => c.parse());
@@ -226,20 +196,12 @@ export const getFunnyAst = {
     _iter(...children) {
         return children.map((x: any) => x.parse());
     },
-
     // Preopt = "requires" Predicate 
     Preopt(requires_str, predicate) {
         const output = predicate ? predicate : null;
         return output;
     },
     // UsesOpt = "uses" ParamList 
-    // // 1 версия 
-    // UsesOpt(uses_str, params) {
-    //     // params уже массив из Param
-    //     const output = params ? params : [];
-    //     return output;
-    // },
-    // // 2 версия
     UsesOpt(uses_str, paramsNode) {
         // paramsNode может быть CST-узлом или массивом 
         if (!paramsNode) return [];
@@ -259,28 +221,26 @@ export const getFunnyAst = {
     Function(var_name, left_paren, params_opt, right_paren, preopt, returns_str, returns_list, usesopt, statement: any) {
         const func_name = var_name.sourceString;
 
-        const arr_func_parameters = params_opt.asIteration().children.map(p=>p.parse() as ast.ParameterDef);
+        const arr_func_parameters = params_opt.asIteration().children.map(x => x.parse() as ast.ParameterDef);
 
         const preopt_ast = preopt.parse ? preopt : null; // предусловие функции
 
-        // const return_array = returns_list.parse();
-        const arr_return_array = returns_list.asIteration().children.map((x: any) => x.parse());
+        const arr_return_array = returns_list.asIteration().children.map(x => x.parse());
         
-        // const locals_array = (usesopt.children.length > 0) ? usesopt.parse() : [];
         const arr_locals_array = usesopt.children.length 
-        ? usesopt.children[0].children[1].asIteration().children.map((x: any) => x.parse()) // normalizeParamList(locals_array);
+        ? usesopt.children[0].children[1].asIteration().children.map((x: any) => x.parse())
         : [];
 
         if (arr_func_parameters.length !== 0) {
-            console.log("checking parameters: ");
+            // console.log("checking parameters: ");
             checkUniqueNames(arr_func_parameters, "parameter");
         }
         if (arr_return_array.length !== 0) {
-            console.log("checking return values: ");
+            // console.log("checking return values: ");
             checkUniqueNames(arr_return_array, "return value");
         }
         if (arr_locals_array.length !== 0) {
-            console.log("checking local variables: ");
+            // console.log("checking local variables: ");
             checkUniqueNames(arr_locals_array, "local variable");
         }
 
@@ -337,29 +297,14 @@ export const getFunnyAst = {
         const expr = rexpr.parse();
         return { type: "assign", targets: [target], exprs: [expr] } as ast.AssignStmt;
     },
-    // LValueList = LValue ("," LValue)*
-    // LValueList(first_value, comma, rest_value) {
-    //     const tail = rest_value ? rest_value.map((r: any) => r[1]) : [];
-    //     return [first_value, ...tail];
-    // },
-    // 2 версия
     // LValueList = ListOf<LValue, ",">
     LValueList(list) {
         return list.asIteration().children.map((c: any) => c.parse());
     },
-
-    // ExprList = Expr ("," Expr)*
-    // ExprList(first_expr, comma, rest_expr) {
-    //     const tail = rest_expr ? rest_expr.map((r: any) => r[1]) : [];
-    //     // const tail = rest_expr.children.map((r: any) => r.children[1].parse());
-    //     return [first_expr, ...tail];
-    // },
-    // 2 версия
     // ExprList = ListOf<Expr, ",">
     ExprList(list) {
         return list.asIteration().children.map((c: any) => c.parse());
     },
-
     // LValue = variable "[" Expr "]" 
     LValue_array_access(name, leftbracket, expr: any, rightbracket) {
         return { type: "larr", name: name.sourceString, index: expr } as ast.ArrLValue;
@@ -370,26 +315,18 @@ export const getFunnyAst = {
     },
     // Block = "{" Statement* "}"
     Block(left_brace, statements: any, right_brace) {
-        console.log("Block: ", statements);
+        // console.log("Block: ", statements);
         // // AST
         // const stmts_list = Array.isArray(statements) ? statements : [statements];
         // // CST
         const stmts_list: ast.Statement[] = statements.children.map((c: any) => c.parse());
-        console.log("Block parsed: ", stmts_list);
+        // console.log("Block parsed: ", stmts_list);
         return { type: "block", stmts: stmts_list } as ast.BlockStmt;
     },
     // Conditional = "if" "(" Condition ")" Statement ("else" Statement)?
-    /*
-    export interface ConditionalStmt {
-        type: "if";
-        condition: Expr;
-        then: Statement;
-        else: Statement | null;
-    }
-    */
     Conditional(_if, left_paren, condition: any, right_paren, _then_statement: any, _else, else_statement: any) {
         let _else_statement = _else ? else_statement : null;
-        // const _else_branch = _else.children.length ? _else.children[1].parse() : null;
+        // const _else_statement = _else.children.length ? _else.children[1].parse() : null;
         return { type: "if", condition: condition, then: _then_statement, else: _else_statement } as ast.ConditionalStmt;
     },
     // While = "while" "(" Condition ")" InvariantOpt? Statement
@@ -409,13 +346,12 @@ export const getFunnyAst = {
     FunctionCall(name, open_paren, arg_list, close_paren) {
         const nameStr = name.sourceString;
         // const args = Array.isArray(arg_list) ? arg_list : [arg_list];
-        const args = (arg_list && arg_list.parse) ? arg_list.parse() : [];
+        const args = (typeof arg_list.parse !== "undefined") ? arg_list.parse() : arg_list;
         return { type: "funccall", name: nameStr, args} as ast.FuncCallExpr;
     },
     // ArgList = ListOf<Expr, ",">
     ArgList(list) {
         const params = list.asIteration().children.map((c: any) => c.parse());
-        // checkUniqueNames(params, "parameter");
         return params;
     },
     // ArrayAccess = variable "[" Expr "]"
@@ -568,7 +504,6 @@ interface FunnyActionsExt
 
 export function parseFunny(source: string): ast.Module
 {
-    // throw "Not implemented";
     const matchResult = grammar.Funny.match(source, "Module");
 
     if (!matchResult.succeeded()) {
