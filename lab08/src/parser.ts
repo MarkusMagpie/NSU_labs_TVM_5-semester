@@ -22,29 +22,6 @@ function checkUniqueNames(items: ast.ParameterDef[] | ast.ParameterDef, kind: st
 
 function collectNamesInNode(node: any, out: Set<string>) {
     if (!node) return;
-    // const reserved = ["if", "else", "while", "for", "returns", "uses", "requires", "invariant"];
-
-    /*
-    у каждого узла CST есть свойство _node, которое содержит внутреннее представление узла.
-    Свойство ctorName - The name of grammar rule that created the node.
-    https://ohmjs.org/docs/api-reference
-    */
-
-    // if (node._node && node._node.ctorName === 'FunctionCall') {
-    //     // FunctionCall = variable "(" ArgList? ")"
-    //     if (node.children && node.children.length >= 3) {
-    //         const argsNode = node.children[2]; // ArgList
-    //         if (argsNode) collectNamesInNode(argsNode, out);
-    //     }
-    //     return;
-    // }
-
-    // node - CST-узел, обхожу его детей
-    // if (node.children && Array.isArray(node.children)) {
-    //     for (const i of node.children) {
-    //         collectNamesInNode(i, out);
-    //     }
-    // }
 
     // node - массив AST-узлов, обхожу его
     if (Array.isArray(node)) {
@@ -54,64 +31,62 @@ function collectNamesInNode(node: any, out: Set<string>) {
         return;
     }
 
-    // ОБЪЯСНИ НА ЗНАЧЕ ПОЧЕМУ НУЖНО НА ПРИМЕРЕ ТЕСТА undeclareddLocalAccess
-    // добавление имен из CST узлов!!! 
-    // if (typeof node.sourceString === "string") {
-    //     let s = node.sourceString;
-    //     if (/^[A-Za-z_]\w*$/.test(s) && !reserved.includes(s)) {
-    //         out.add(node.sourceString);
-    //     } 
-    // }
+
 
     // AST проверка конкретных узлов
+    switch (node.type) {
+        case "block":
+            if (Array.isArray(node.stmts)) {
+                node.stmts.forEach((stmt: any) => collectNamesInNode(stmt, out));
+            }
+            break;
+        case "assign":
+            if (Array.isArray(node.targets)) {
+                node.targets.forEach((target: any) => collectNamesInNode(target, out));
+            }
+            if (Array.isArray(node.exprs)) {
+                node.exprs.forEach((expr: any) => collectNamesInNode(expr, out));
+            }
+            break;
+        case "lvar":
+            if (typeof node.name === "string") {
+                console.log(`collectNamesInNode: found lvar ${node.name}`);
+                out.add(node.name);
+            }
+            break;
+        case "larr":
+            if (typeof node.name === "string") {
+                console.log(`collectNamesInNode: found larr ${node.name}`);
+                out.add(node.name);
+            }
+            collectNamesInNode(node.index, out);
+            break; 
+        case "funccall":
+            console.log(`collectNamesInNode: ${node.name} is a function call`);
+            if (Array.isArray(node.args)) {
+                node.args.forEach((arg: any) => collectNamesInNode(arg, out));
+            }
+            break;
 
-    if (node.type === "funccall") {
-        console.log(`collectNamesInNode: ${node.name} is a function call`);
-        if (Array.isArray(node.args)) {
-            collectNamesInNode(node.args, out);
-        }
-        return;
+        // арифметических выражений
+        case "var":
+            if (typeof node.name === "string") {
+                console.log(`collectNamesInNode: found var ${node.name}`);
+                out.add(node.name);
+            }
+            break;
+        case "bin":
+            collectNamesInNode(node.left, out);
+            collectNamesInNode(node.right, out);
+            break;
+        // для атмосферы
+        case "num":
+            break;
+        default:
+            if (node.left) collectNamesInNode(node.left, out);
+            if (node.right) collectNamesInNode(node.right, out);
+            break; 
     }
-    if (node.type === "block" && Array.isArray(node.stmts)) {
-        collectNamesInNode(node.stmts, out);
-    }
-    else if (node.type === "assign") {
-        if (Array.isArray(node.targets)) {
-            collectNamesInNode(node.targets, out);
-        }
-        if (Array.isArray(node.exprs)) {
-            collectNamesInNode(node.exprs, out);
-        }
-    }
-    if (node.type === "lvar") {
-        if (typeof node.name === "string") {
-            out.add(node.name);
-        }
-        return;
-    }
-    if (node.type === "larr") {
-        // имя массива добавляю
-        if (typeof node.name === "string") out.add(node.name);
-        collectNamesInNode(node.index, out);
-        return;
-    }
-}
-
-function normalizeParamList(x: any): ast.ParameterDef[] {
-    if (!x) return [];
-
-    // если уже массив то верну как есть
-    if (Array.isArray(x)) {
-        // [[p,p]] -> вернуть первый элемент
-        if (x.length === 1 && Array.isArray(x[0])) {
-            return x[0];
-        }
-
-        return x;
-    }
-
-    // если единичный параметр
-    return [x];
 }
 
 function checkFunctionCalls(module: ast.Module) {
@@ -284,16 +259,14 @@ export const getFunnyAst = {
     Function(var_name, left_paren, params_opt, right_paren, preopt, returns_str, returns_list, usesopt, statement: any) {
         const func_name = var_name.sourceString;
 
-        const func_parameters = (params_opt.children.length > 0) ? params_opt.parse() : [];
         const arr_func_parameters = params_opt.asIteration().children.map(p=>p.parse() as ast.ParameterDef);
-        //const arr_func_parameters = normalizeParamList(func_parameters);
 
-        //const preopt_ast = preopt.parse ? preopt : null; // предусловие функции
+        const preopt_ast = preopt.parse ? preopt : null; // предусловие функции
 
-        const return_array = returns_list.parse();
-        const arr_return_array = normalizeParamList(return_array);
+        // const return_array = returns_list.parse();
+        const arr_return_array = returns_list.asIteration().children.map((x: any) => x.parse());
         
-        const locals_array = (usesopt.children.length > 0) ? usesopt.parse() : [];
+        // const locals_array = (usesopt.children.length > 0) ? usesopt.parse() : [];
         const arr_locals_array = usesopt.children.length 
         ? usesopt.children[0].children[1].asIteration().children.map((x: any) => x.parse()) // normalizeParamList(locals_array);
         : [];
