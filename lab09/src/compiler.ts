@@ -1,5 +1,5 @@
 import { writeFileSync } from "fs";
-import { Op, I32, Void, c, BufferedEmitter, LocalEntry, Uint8} from "../../wasm";
+import { Op, I32, Void, c, BufferedEmitter, LocalEntry, Uint8, Int} from "../../wasm";
 import { Module, Statement, Expr, LValue } from "../../lab08";
 
 const { i32, 
@@ -112,7 +112,7 @@ function compileExpr(expr: Expr, locals: string[], functionIndexMap: Map<string,
 // возвращается объект с двумя методами - для записи значения и его чтения
 function compileLValue(lvalue: LValue, locals: string[]): 
     {   set: (value: Op<I32>) => Op<Void>, 
-        get: Op<I32> } {
+        get: () => Op<I32> } {
     switch (lvalue.type) {
         case "lvar":
             const index = locals.indexOf(lvalue.name);
@@ -126,25 +126,41 @@ function compileLValue(lvalue: LValue, locals: string[]):
                     по WASM: загрузить значение переменной на стек, чтобы его можно 
                     было использовать
                 */
-                get: get_local(i32, index)
+                get: () => get_local(i32, index)
             };
         case "larr":
             const arrayIndex = locals.indexOf(lvalue.name);
             const indexExpr = compileExpr(lvalue.index, locals, new Map());
-            // return {
-            //     set: (value: Op<I32>) => {
 
-            //     },
-            //     get: () => {
+            // базовый адрес массива
+            const baseAddress = get_local(i32, arrayIndex);
+            
+            // вычисляю адрес элемента: baseAddress + index * 4 (каждый int=4)
+            const elementOffset = i32.mul(indexExpr, i32.const(4));
+            const elementAddress = i32.add(baseAddress, elementOffset);
 
-            //     }
-            // };
-            throw new Error("Array access TODO");
+            return {
+                set: (value: Op<I32>) => {
+                    // схранение значения по вычисленному адресу в памяти
+                    return i32.store(
+                        [varuint32(4), 0 as any as Int],
+                        elementAddress,
+                        value
+                    );
+                },
+                get: () => {
+                    return i32.load(
+                        [varuint32(4), 0 as any as Int],
+                        elementAddress
+                    );
+                }
+            };
         default:
-            throw new Error(`Unknown lvalue type: ${(lvalue as any).type}`);
+            throw new Error("неизвестный тпи lvalue");
     }
 }
 
+// export type Statement = AssignStmt | BlockStmt | ConditionalStmt | WhileStmt;
 function compileStatement(stmt: Statement, locals: string[], functionIndexMap: Map<string, number>): Op<Void>[] {
     const ops: Op<Void>[] = []; // предполагаемый массив инструкций WASM
     
