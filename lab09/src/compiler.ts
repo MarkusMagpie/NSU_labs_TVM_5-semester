@@ -33,11 +33,9 @@ export async function compileModule<M extends Module>(m: M, name?: string): Prom
         const paramTypes = func.parameters.map(() => i32);
         const returnTypes = func.returns.map(() => i32);
         
-        typeSection.push(func_type_m(paramTypes, returnTypes));
-        functionSection.push(varuint32(i)); 
-        
-        // экспорт функции
-        exportSection.push(export_entry(str_ascii(func.name), 0 as any as Uint8,  varuint32(i)));
+        typeSection.push(c.func_type_m(paramTypes, returnTypes));
+        functionSection.push(c.varuint32(i)); 
+        exportSection.push(c.export_entry(c.str_ascii(func.name), 0 as any as Uint8, c.varuint32(i)));
     }
 
     // 2 - генерация тела функций
@@ -53,7 +51,7 @@ export async function compileModule<M extends Module>(m: M, name?: string): Prom
         // записи локальных переменных с типом i32
         // const localEntries: LocalEntry[] = allLocals.map(() => local_entry(varuint32(1), i32));
         const localEntries: LocalEntry[] = [
-            local_entry(varuint32(allLocals.length), i32)
+            c.local_entry(c.varuint32(allLocals.length), i32)
         ];
 
         // обработка тела функции
@@ -65,10 +63,27 @@ export async function compileModule<M extends Module>(m: M, name?: string): Prom
             bodyOps.push(get_local(i32, index));
         }
 
-        codeSection.push(function_body(localEntries, bodyOps));
+        codeSection.push(c.function_body(localEntries, bodyOps));
     }
 
-    throw new Error("Not implemented");
+    // создаие модуля WASM из всех секций
+    // const mod = c.module([
+    //     c.type_section(typeSection), // передача заполненной секции сигнатур функций
+    //     c.function_section(functionSection),
+    //     c.export_section(exportSection),
+    //     c.code_section(codeSection)
+    // ]);
+    const mod = c.module([
+        c.type_section(typeSection.map((type, index) => c.func_type(type.parameters, type.returns))),
+        c.function_section(functionSection.map(index => c.varuint32(index))),
+        c.export_section(exportSection.map(exp => c.export_entry(exp.field, exp.kind, exp.index))),
+        c.code_section(codeSection)
+    ]);
+    mod.emit(emitter); // запись модуля в буфер
+    // компиляция WebAssembly модуля
+    const wasmModule = await WebAssembly.instantiate(emitter.buffer);
+    // возвращаю экспорты модуля
+    return wasmModule.instance.exports;
 }
 
 
@@ -100,7 +115,7 @@ function compileExpr(expr: Expr, locals: string[], functionIndexMap: Map<string,
             if (funcIndex === undefined) {
                 throw new Error(`unknown function: ${expr.name}`);
             }
-            return call(i32, varuint32(funcIndex), args);
+            return call(i32, c.varuint32(funcIndex), args);
         case "arraccess":
             throw new Error("Array access TODO");
         default:
@@ -120,20 +135,20 @@ function compileLValue(lvalue: LValue, locals: string[]):
                 /*
                 операция изменения значения переменной
                 */
-                set: (value: Op<I32>) => set_local(index, value),
+                set: (value: Op<I32>) => c.set_local(index, value),
                 /*
                 операция получения доступа к значению переменной 
                     по WASM: загрузить значение переменной на стек, чтобы его можно 
                     было использовать
                 */
-                get: () => get_local(i32, index)
+                get: () => c.get_local(i32, index)
             };
         case "larr":
             const arrayIndex = locals.indexOf(lvalue.name);
             const indexExpr = compileExpr(lvalue.index, locals, new Map());
 
             // базовый адрес массива
-            const baseAddress = get_local(i32, arrayIndex);
+            const baseAddress = c.get_local(i32, arrayIndex);
             
             // вычисляю адрес элемента: baseAddress + index * 4 (каждый int=4)
             const elementOffset = i32.mul(indexExpr, i32.const(4));
@@ -143,14 +158,14 @@ function compileLValue(lvalue: LValue, locals: string[]):
                 set: (value: Op<I32>) => {
                     // схранение значения по вычисленному адресу в памяти
                     return i32.store(
-                        [varuint32(4), 0 as any as Int],
+                        [c.varuint32(4), 0 as any as Int],
                         elementAddress,
                         value
                     );
                 },
                 get: () => {
                     return i32.load(
-                        [varuint32(4), 0 as any as Int],
+                        [c.varuint32(4), 0 as any as Int],
                         elementAddress
                     );
                 }
