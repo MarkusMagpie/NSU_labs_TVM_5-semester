@@ -1,6 +1,6 @@
 import { writeFileSync } from "fs";
-import { Op, I32, Void, c, BufferedEmitter, LocalEntry, Uint8, Int} from "../../wasm";
-import { Module, Statement, Expr, LValue } from "../../lab08";
+import { Op, I32, Void, c, BufferedEmitter, LocalEntry, Uint8, Int, ExportEntry} from "../../wasm";
+import { Module, Statement, Expr, LValue, Condition } from "../../lab08";
 
 const { i32, 
     varuint32,
@@ -8,15 +8,13 @@ const { i32,
     func_type_m, function_body, type_section, function_section, export_section, code_section } = c;
   
 export async function compileModule<M extends Module>(m: M, name?: string): Promise<WebAssembly.Exports>
-{
-    const emitter = new BufferedEmitter(new ArrayBuffer(0));
-    
+{   
     // секция сигнатур функций 
     const typeSection: any[] = [];
     // секция индексов типов для каждой функции
     const functionSection: any[] = [];
     // секция экспортируемых функций по именам
-    const exportSection: any[] = [];
+    const exportSection: ExportEntry[] = [];
     // секция тел функций с локальными перем
     const codeSection: any[] = [];
 
@@ -35,7 +33,7 @@ export async function compileModule<M extends Module>(m: M, name?: string): Prom
         
         typeSection.push(c.func_type_m(paramTypes, returnTypes));
         functionSection.push(c.varuint32(i)); 
-        exportSection.push(c.export_entry(c.str_ascii(func.name), 0 as any as Uint8, c.varuint32(i)));
+        exportSection.push(c.export_entry(c.str_ascii(func.name), c.external_kind.function, c.varuint32(i)));
     }
 
     // 2 - генерация тела функций
@@ -60,7 +58,7 @@ export async function compileModule<M extends Module>(m: M, name?: string): Prom
         // возвращаемые значения на стек
         for (const ret of func.returns) {
             const index = allLocals.indexOf(ret.name);
-            bodyOps.push(get_local(i32, index));
+            bodyOps.push(c.get_local(i32, index));
         }
 
         codeSection.push(c.function_body(localEntries, bodyOps));
@@ -74,11 +72,12 @@ export async function compileModule<M extends Module>(m: M, name?: string): Prom
     //     c.code_section(codeSection)
     // ]);
     const mod = c.module([
-        c.type_section(typeSection.map((type, index) => c.func_type(type.parameters, type.returns))),
-        c.function_section(functionSection.map(index => c.varuint32(index))),
-        c.export_section(exportSection.map(exp => c.export_entry(exp.field, exp.kind, exp.index))),
+        c.type_section(typeSection),
+        c.function_section(functionSection),
+        c.export_section(exportSection),
         c.code_section(codeSection)
     ]);
+    const emitter = new BufferedEmitter(new ArrayBuffer(mod.z));
     mod.emit(emitter); // запись модуля в буфер
     // компиляция WebAssembly модуля
     const wasmModule = await WebAssembly.instantiate(emitter.buffer);
@@ -95,7 +94,7 @@ function compileExpr(expr: Expr, locals: string[], functionIndexMap: Map<string,
             return i32.const(expr.value);
         case "var":
             const index = locals.indexOf(expr.name);
-            return get_local(i32, index);
+            return c.get_local(i32, index);
         case "neg":
             return i32.mul(i32.const(-1), compileExpr(expr.arg, locals, functionIndexMap));
         case "bin":
@@ -115,7 +114,7 @@ function compileExpr(expr: Expr, locals: string[], functionIndexMap: Map<string,
             if (funcIndex === undefined) {
                 throw new Error(`unknown function: ${expr.name}`);
             }
-            return call(i32, c.varuint32(funcIndex), args);
+            return c.call(i32, c.varuint32(funcIndex), args);
         case "arraccess":
             throw new Error("Array access TODO");
         default:
@@ -175,6 +174,53 @@ function compileLValue(lvalue: LValue, locals: string[]):
     }
 }
 
+// export type Condition = TrueCond | FalseCond | ComparisonCond | NotCond | AndCond | OrCond | ImpliesCond |  ParenCond;
+function compileCondition(cond: Condition, locals: string[], functionIndexMap: Map<string, number>): Op<I32> {
+    switch (cond.kind) {
+        case "true":
+            return i32.const(1);
+        case "false":
+            return i32.const(0);
+        case "comparison":
+            const left = compileExpr(cond.left, locals, functionIndexMap);
+            const right = compileExpr(cond.right, locals, functionIndexMap);
+            switch (cond.op) {
+                case "==": return i32.eq(left, right);
+                case "!=": return i32.ne(left, right);
+                case ">": return i32.gt_s(left, right);
+                case "<": return i32.lt_s(left, right);
+                case ">=": return i32.ge_s(left, right);
+                case "<=": return i32.le_s(left, right);
+                default: throw new Error(`неизв оператор сравнения: ${cond.op}`);
+            }
+        case "not":
+            const inside = compileCondition(cond.condition, locals, functionIndexMap);
+            return i32.eqz(inside); // проверка на ноль
+        case "and":
+            // Короткое замыкание AND: если левая часть ложна, возвращаем 0, иначе правую часть
+            return c.if_(
+                i32, 
+                compileCondition(cond.left, locals, functionIndexMap),
+                [compileCondition(cond.right, locals, functionIndexMap)],
+                [i32.const(0)]
+            );
+        case "or":
+            // Короткое замыкание OR: если левая часть истинна, возвращаем 1, иначе правую часть
+            return c.if_(
+                i32,
+                compileCondition(cond.left, locals, functionIndexMap),
+                [i32.const(1)],
+                [compileCondition(cond.right, locals, functionIndexMap)]
+            );
+        case "paren":
+            return compileCondition(cond.inner, locals, functionIndexMap);
+        default:
+            console.log(cond);
+            console.log(cond.left, cond.right);
+            throw new Error(`unknown condition: ${cond.kind}`);
+    }
+}
+
 // export type Statement = AssignStmt | BlockStmt | ConditionalStmt | WhileStmt;
 function compileStatement(stmt: Statement, locals: string[], functionIndexMap: Map<string, number>): Op<Void>[] {
     const ops: Op<Void>[] = []; // предполагаемый массив инструкций WASM
@@ -202,9 +248,34 @@ function compileStatement(stmt: Statement, locals: string[], functionIndexMap: M
         case "if":
             throw new Error("If statement TODO");
         case "while":
-            throw new Error("While statement TODO");
+            // условие и тело цикла в WASM
+            const condition = compileCondition(stmt.condition, locals, functionIndexMap);
+            const bodyOps = compileStatement(stmt.body, locals, functionIndexMap);
+
+            // block
+            //  loop
+            //   condition -> false, выход из цикла
+            //    body
+            //    return to start of loop
+            //  end
+            // end
+
+            const whileLoop = 
+                c.void_block([
+                    c.void_loop([
+                        // condition -> false, выход из цикла
+                        c.br_if(1, i32.eqz(condition)),
+                        // loop body
+                        ...bodyOps,
+                        // return to start of loop
+                        c.br(0)
+                    ])
+                ]);
+            
+            ops.push(whileLoop);
+            break;
         default:
-            throw new Error("Unknown type of statement");
+            throw new Error("unknown statement");
     }
     
     return ops;
