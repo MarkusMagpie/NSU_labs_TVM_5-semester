@@ -54,7 +54,7 @@ export interface ConditionalStmt {
 }
 export interface WhileStmt {
     type: "while";
-    condition: Expr;
+    condition: Condition;
     invariant: Predicate | null;
     body: Statement;
 }

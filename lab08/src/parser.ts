@@ -292,14 +292,17 @@ export const getFunnyAst = {
         return { type: "block", stmts: stmts_list } as ast.BlockStmt;
     },
     // Conditional = "if" "(" Condition ")" Statement ("else" Statement)?
-    Conditional(_if, left_paren, condition: any, right_paren, _then_statement: any, _else, else_statement: any) {
+    Conditional(_if, left_paren, condition: any, right_paren, _then: any, _else, else_statement: any) {
         let _else_statement = _else.children.length > 0 ? else_statement.children[0].parse() : null;
-        return { type: "if", condition: condition, then: _then_statement, else: _else_statement } as ast.ConditionalStmt;
+        // let then_parsed = _then_statement.children.length > 0 ? _then_statement.children[0].parse() : null;
+        return { type: "if", condition: condition, then: _then, else: _else_statement } as ast.ConditionalStmt;
     },
     // While = "while" "(" Condition ")" InvariantOpt? Statement
     While(_while, left_paren, condition: any, right_paren, inv: any, _then: any) {
         const invariant = inv.children.length > 0 ? inv.children[0].parse() : null;
-        return { type: "while", condition: condition, invariant: invariant, body: _then } as ast.WhileStmt;
+        const condition_parsed = condition.children.length > 0 ? condition.children[0].parse() : null;
+        const then_parsed = _then.children.length > 0 ? _then.children[0].parse() : null;
+        return { type: "while", condition: condition_parsed, invariant: invariant, body: then_parsed } as ast.WhileStmt;
     },
     // InvariantOpt = "invariant" Predicate
     InvariantOpt(_inv, predicate: any) {
@@ -338,7 +341,8 @@ export const getFunnyAst = {
     },
     // Condition = Comparison
     Condition_comparison(arg0) {
-        return arg0;
+        const arg_parsed = arg0.children.length > 0 ? arg0.children[0].parse() : null;
+        return arg_parsed;
     },
     // Condition = "not" Condition
     Condition_not(not, cond: any) {
@@ -371,22 +375,36 @@ export const getFunnyAst = {
         | Expr "<"  Expr                        -- lt
     */
     Comparison_eq(left_expr: any, eq, right_expr: any) {
-        return { kind: "comparison", left: left_expr, op: "==", right: right_expr } as ast.ComparisonCond;
+        // const left_parsed = (left_expr && typeof left_expr.parse === "function") ? left_expr.parse() : left_expr;
+        // const right_parsed = (right_expr && typeof right_expr.parse === "function") ? right_expr.parse() : right_expr;
+        const left_parsed = left_expr.children.length > 0 ? left_expr.children[0].parse() : null;
+        const right_parsed = right_expr.children.length > 0 ? right_expr.children[0].parse() : null;
+        return { kind: "comparison", left: left_parsed, op: "==", right: right_parsed } as ast.ComparisonCond;
     },
     Comparison_neq(left_expr: any, neq, right_expr: any) {
-        return { kind: "comparison", left: left_expr, op: "!=", right: right_expr } as ast.ComparisonCond;
+        const left_parsed = left_expr.children.length > 0 ? left_expr.children[0].parse() : null;
+        const right_parsed = right_expr.children.length > 0 ? right_expr.children[0].parse() : null;
+        return { kind: "comparison", left: left_parsed, op: "!=", right: right_parsed } as ast.ComparisonCond;
     },
     Comparison_ge(left_expr: any, ge, right_expr: any) {
-        return { kind: "comparison", left: left_expr, op: ">=", right: right_expr } as ast.ComparisonCond;
+        const left_parsed = left_expr.children.length > 0 ? left_expr.children[0].parse() : null;
+        const right_parsed = right_expr.children.length > 0 ? right_expr.children[0].parse() : null;
+        return { kind: "comparison", left: left_parsed, op: ">=", right: right_parsed } as ast.ComparisonCond;
     },
     Comparison_le(left_expr: any, le, right_expr: any) {
-        return { kind: "comparison", left: left_expr, op: "<=", right: right_expr } as ast.ComparisonCond;
+        const left_parsed = left_expr.children.length > 0 ? left_expr.children[0].parse() : null;
+        const right_parsed = right_expr.children.length > 0 ? right_expr.children[0].parse() : null;
+        return { kind: "comparison", left: left_parsed, op: "<=", right: right_parsed } as ast.ComparisonCond;
     },
     Comparison_gt(left_expr: any, gt, right_expr: any) {
-        return { kind: "comparison", left: left_expr, op: ">", right: right_expr } as ast.ComparisonCond;
+        const left_parsed = left_expr.children.length > 0 ? left_expr.children[0].parse() : null;
+        const right_parsed = right_expr.children.length > 0 ? right_expr.children[0].parse() : null;
+        return { kind: "comparison", left: left_parsed, op: ">", right: right_parsed } as ast.ComparisonCond;
     },
     Comparison_lt(left_expr: any, lt, right_expr: any) {
-        return { kind: "comparison", left: left_expr, op: "<", right: right_expr } as ast.ComparisonCond;
+        const left_parsed = left_expr.children.length > 0 ? left_expr.children[0].parse() : null;
+        const right_parsed = right_expr.children.length > 0 ? right_expr.children[0].parse() : null;
+        return { kind: "comparison", left: left_parsed, op: "<", right: right_parsed } as ast.ComparisonCond;
     },
 
 
