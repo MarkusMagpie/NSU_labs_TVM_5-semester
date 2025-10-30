@@ -48,7 +48,7 @@ export interface BlockStmt {
 }
 export interface ConditionalStmt {
     type: "if";
-    condition: Expr;
+    condition: Condition;
     then: Statement;
     else: Statement | null;
 }

@@ -292,10 +292,11 @@ export const getFunnyAst = {
         return { type: "block", stmts: stmts_list } as ast.BlockStmt;
     },
     // Conditional = "if" "(" Condition ")" Statement ("else" Statement)?
-    Conditional(_if, left_paren, condition: any, right_paren, _then: any, _else, else_statement: any) {
-        let _else_statement = _else.children.length > 0 ? else_statement.children[0].parse() : null;
-        // let then_parsed = _then_statement.children.length > 0 ? _then_statement.children[0].parse() : null;
-        return { type: "if", condition: condition, then: _then, else: _else_statement } as ast.ConditionalStmt;
+    Conditional(_if, left_paren, condition: any, right_paren, _then: any, _else, _else_statement: any) {
+        const condition_parsed = condition.children.length > 0 ? condition.children[0].parse() : null;
+        let then_parsed = _then.children.length > 0 ? _then.children[0].parse() : null;
+        let else_statement = _else.children.length > 0 ? _else_statement.children[0].parse() : null;
+        return { type: "if", condition: condition_parsed, then: then_parsed, else: else_statement } as ast.ConditionalStmt;
     },
     // While = "while" "(" Condition ")" InvariantOpt? Statement
     While(_while, left_paren, condition: any, right_paren, inv: any, _then: any) {

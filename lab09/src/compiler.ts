@@ -245,8 +245,17 @@ function compileStatement(stmt: Statement, locals: string[], functionIndexMap: M
                 ops.push(lvalue.set(exprValues[i]));
             }
             break;
+        // Conditional = "if" "(" Condition ")" Statement ("else" Statement)?
         case "if":
-            throw new Error("If statement TODO");
+            const condition2 = compileCondition(stmt.condition, locals, functionIndexMap);
+            console.log(condition2);
+            const thenOps = compileStatement(stmt.then, locals, functionIndexMap);
+            const elseOps = stmt.else ? compileStatement(stmt.else, locals, functionIndexMap) : [];
+            const ifOp = c.void_block([c.if_(c.void, condition2, thenOps, elseOps)]);
+            
+            ops.push(ifOp);
+            break;
+        // While = "while" "(" Condition ")" InvariantOpt? Statement
         case "while":
             // условие и тело цикла в WASM
             const condition = compileCondition(stmt.condition, locals, functionIndexMap);
