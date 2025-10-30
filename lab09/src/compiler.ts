@@ -118,6 +118,7 @@ function compileExpr(expr: Expr, locals: string[], functionIndexMap: Map<string,
         case "arraccess":
             throw new Error("Array access TODO");
         default:
+            console.log(expr);
             throw new Error(`unknown expr type: ${(expr as any).type}`);
     }
 }
@@ -197,7 +198,7 @@ function compileCondition(cond: Condition, locals: string[], functionIndexMap: M
             const inside = compileCondition(cond.condition, locals, functionIndexMap);
             return i32.eqz(inside); // проверка на ноль
         case "and":
-            // Короткое замыкание AND: если левая часть ложна, возвращаем 0, иначе правую часть
+            // если левая часть ложна возвращаю 0, иначе правую часть
             return c.if_(
                 i32, 
                 compileCondition(cond.left, locals, functionIndexMap),
@@ -205,7 +206,7 @@ function compileCondition(cond: Condition, locals: string[], functionIndexMap: M
                 [i32.const(0)]
             );
         case "or":
-            // Короткое замыкание OR: если левая часть истинна, возвращаем 1, иначе правую часть
+            // если левая часть истинна возвращаю 1, иначе правую часть
             return c.if_(
                 i32,
                 compileCondition(cond.left, locals, functionIndexMap),
@@ -216,7 +217,6 @@ function compileCondition(cond: Condition, locals: string[], functionIndexMap: M
             return compileCondition(cond.inner, locals, functionIndexMap);
         default:
             console.log(cond);
-            console.log(cond.left, cond.right);
             throw new Error(`unknown condition: ${cond.kind}`);
     }
 }
