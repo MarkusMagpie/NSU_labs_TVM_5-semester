@@ -3,6 +3,7 @@ import { Module, ParameterDef, Predicate, FunctionDef, Statement, Condition, Exp
 
 export interface AnnotatedModule extends Module {
     formulas: Formula[];
+    functions: AnnotatedFunctionDef[];
 }
   
 // Formula = "formula" variable "(" ParamList? ")" "=" Predicate ";"

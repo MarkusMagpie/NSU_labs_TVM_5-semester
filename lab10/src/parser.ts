@@ -215,20 +215,16 @@ const getFunnierAst = {
     Function := variable 
         "(" ParamList ")" 
         Preopt? 
-        Postopt?
         "returns" ParamListNonEmpty 
+        Postopt?
         UsesOpt? 
         Statement
     */
-    Function(var_name, left_paren, params_opt, right_paren, preopt, postopt, returns_str, returns_list, usesopt, statement: any) {
+    Function(var_name, left_paren, params_opt, right_paren, preopt, returns_str, returns_list, postopt, usesopt, statement: any) {
         const func_name = var_name.sourceString;
-
-        const arr_func_parameters = params_opt.children.map(x => x.parse() as ParameterDef);
-
+        const arr_func_parameters = params_opt.parse() as ParameterDef[];
         const preopt_ast = preopt.parse ? preopt.parse() : null; // предусловие функции
-
-        const arr_return_array = returns_list.children.map(x => x.parse()) as ParameterDef[];
-        
+        const arr_return_array = returns_list.parse() as ParameterDef[];
         const postopt_ast = postopt.ast ? postopt.parse() : null; // постусловие функции
 
         // UsesOpt = ("uses" ParamList)? 
@@ -307,7 +303,7 @@ export function parseFunnier(source: string, origin?: string): AnnotatedModule
 
     const ast_module = semantics(matchResult).parse();
     // НОВОЕ
-    checkUniqueNamesInModule(ast_module);
+    // checkUniqueNamesInModule(ast_module);
     checkFunctionCalls(ast_module);
     return ast_module;
 }

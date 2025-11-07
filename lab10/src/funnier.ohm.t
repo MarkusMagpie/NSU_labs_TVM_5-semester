@@ -1,8 +1,7 @@
 
 Funnier <: Funny {
-    // аннотации модуля (глобальные формулы + аксиомы)
     Module := Formula* Function+
-    
+
     Formula = variable "(" ParamList ")" "=>" Predicate ";"
 
     // постусловие функции
