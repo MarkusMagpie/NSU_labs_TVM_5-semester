@@ -88,9 +88,9 @@ Funny <: Arithmetic {
         | "(" Predicate ")"                     -- paren
     // кванторы
     Quantifier = ("forall" | "exists") 
-        "(" variable ":" Type "|" Predicate ")"
+        "(" Param "|" Predicate ")"
     // ссылки на формулы
-    FormulaRef = variable "(" ArgList? ")"
+    FormulaRef = variable "(" ParamList ")"
 
 
 

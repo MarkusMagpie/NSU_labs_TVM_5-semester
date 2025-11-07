@@ -451,23 +451,34 @@ export const getFunnyAst = {
     },
     /*
     Quantifier = ("forall" | "exists") 
-        "(" variable ":" Type "|" Predicate ")"
+        "(" Param "|" Predicate ")"
     */
-    Quantifier(quant, left_paren, var_name, colon, var_type: any, bar, predicate: any, right_paren) {
+    /*
+    export interface Quantifier {
+        kind: "quantifier";
+        quant: "forall" | "exists";
+        varName: string;
+        varType: "int" | "int[]";
+        body: Predicate;
+    }
+    */
+    Quantifier(quant, left_paren, param: any, bar, body: any, right_paren) {
+        const paramAst = param.parse() as ast.ParameterDef;
         return {
             kind: "quantifier", 
             quant: quant.sourceString, 
-            varName: var_name.sourceString, 
-            varType: var_type, 
-            body: predicate  
+            varName: paramAst.name, 
+            varType: param.type, 
+            body: body.parse()
         } as ast.Quantifier;
     },
-    // FormulaRef = variable "(" ArgList? ")"
+    // FormulaRef = variable "(" ParamList ")"
     FormulaRef(name, open_paren, arg_list, close_paren) {
         const nameStr = name.sourceString;
-        const args = arg_list ? arg_list : [];
-        // const args = opt(arg_list, []);
-        return { kind: "formula", name: nameStr, args} as ast.FormulaRef;
+        const args = arg_list.children.length > 0 
+            ? arg_list.children[0].asIteration().children.map((arg: any) => arg.parse())
+            : [];
+        return { kind: "formula", name: nameStr, parameters: args} as ast.FormulaRef;
     },
 } satisfies FunnyActionDict<any>;
 

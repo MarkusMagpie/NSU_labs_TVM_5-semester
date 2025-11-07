@@ -3,9 +3,7 @@ Funnier <: Funny {
     // аннотации модуля (глобальные формулы + аксиомы)
     Module := Formula* Function+
     
-    Formula = "formula" variable "(" ParamList ")" "=>" Predicate ";"
-
-    // Formula = identifier "(" ParamList ")" "=>" Predicate ";" 
+    Formula = variable "(" ParamList ")" "=>" Predicate ";"
 
     // постусловие функции
     Postopt = "ensures" Predicate
@@ -18,9 +16,4 @@ Funnier <: Funny {
         Postopt?
         UsesOpt? 
         Statement
-    
-    // расширение оператора while для поддержки вариантов
-    While := "while" "(" Condition ")" InvariantOpt? VariantOpt? Statement
-
-    VariantOpt = "variant" Expr
 }

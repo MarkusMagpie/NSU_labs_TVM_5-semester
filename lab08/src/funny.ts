@@ -128,5 +128,5 @@ export interface Quantifier {
 export interface FormulaRef {
     kind: "formula";
     name: string;
-    args: Expr[]; // аргументы ссылки на формулу
+    parameters: ParameterDef[]; // аргументы ссылки на формулу
 }

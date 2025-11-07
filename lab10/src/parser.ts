@@ -1,6 +1,6 @@
 import { MatchResult, Semantics } from 'ohm-js';
 import grammar, { FunnierActionDict } from './funnier.ohm-bundle';
-import { AnnotatedModule, Formula, AnnotatedFunctionDef, AnnotatedWhileStmt, AnnotatedStatement } from './funnier';
+import { AnnotatedModule, Formula, AnnotatedFunctionDef } from './funnier';
 import { getFunnyAst } from '@tvm/lab08';
 import { ParameterDef, Statement, Predicate, Expr } from '../../lab08/src/funny';
 
@@ -9,11 +9,9 @@ function checkUniqueNames(items: ParameterDef[] | ParameterDef, kind: string) {
     const itemArray = Array.isArray(items) ? items : [items];
     const nameMap = new Map<string, number>();
     
-    itemArray.forEach((item, idx) => {
-        if (!item || typeof item.name !== "string") {
-            throw new Error("checkUniqueNames: undefined name");
-        }
-        // console.log(`checking ${kind}: ${item.name} at index ${idx}`);
+    const filteredItems = itemArray.filter(item => item && typeof item.name === "string");
+
+    filteredItems.forEach((item, idx) => {
         if (nameMap.has(item.name)) {
             throw new Error(`redeclaration of ${kind} '${item.name}' at position ${idx}`);
         }
@@ -179,10 +177,15 @@ function checkFunctionCalls(module: AnnotatedModule) {
 const getFunnierAst = {
     ...getFunnyAst,
 
+    _iter: (...children) => children,
+    // EmptyListOf: (...children) => children,
+    EmptyListOf: () => [],
+    _terminal: () => null,
+
     // Module := Formula* Function+
     Module(formulas: any, functions: any){
-        const formulasAst = formulas.asIteration().children.map((x: any) => x.parse());
-        const functionsAst = functions.asIteration().children.map((x: any) => x.parse());
+        const formulasAst = formulas.children.map((x: any) => x.parse());
+        const functionsAst = functions.children.map((x: any) => x.parse());
         
         return { 
             type: "module", 
@@ -191,9 +194,9 @@ const getFunnierAst = {
         } as AnnotatedModule;
     },
 
-    // Formula = "formula" variable "(" ParamList? ")" "=>" Predicate ";"
-    Formula(_formula, name, _lp, paramsNode, _rp, _arrow, body, _semi) {
-        const paramsAst = paramsNode.asIteration().children.map((c: any) => c.parse());
+    // Formula = variable "(" ParamList ")" "=>" Predicate ";"
+    Formula(name, _lp, paramsNode, _rp, _arrow, body, _semi) {
+        const paramsAst = paramsNode.children.map((c: any) => c.parse());
         
         return {
             type: "formula",
@@ -220,34 +223,36 @@ const getFunnierAst = {
     Function(var_name, left_paren, params_opt, right_paren, preopt, postopt, returns_str, returns_list, usesopt, statement: any) {
         const func_name = var_name.sourceString;
 
-        const arr_func_parameters = params_opt.asIteration().children.map(x => x.parse() as ParameterDef);
+        const arr_func_parameters = params_opt.children.map(x => x.parse() as ParameterDef);
 
         const preopt_ast = preopt.parse ? preopt.parse() : null; // предусловие функции
 
-        const arr_return_array = returns_list.asIteration().children.map(x => x.parse()) as ParameterDef[];
+        const arr_return_array = returns_list.children.map(x => x.parse()) as ParameterDef[];
         
         const postopt_ast = postopt.ast ? postopt.parse() : null; // постусловие функции
 
         // UsesOpt = ("uses" ParamList)? 
         const arr_locals_array = usesopt.children.length > 0
-        ? usesopt.children[0].children[1].asIteration().children.map((x: any) => x.parse()) as ParameterDef[]
+        ? usesopt.children[0].children[1].children.map((x: any) => x.parse()) as ParameterDef[]
         : [];
 
         if (arr_func_parameters.length !== 0) {
-            // console.log("checking parameters: ");
+            console.log("checking parameters: ");
             checkUniqueNames(arr_func_parameters, "parameter");
         }
         if (arr_return_array.length !== 0) {
-            // console.log("checking return values: ");
+            console.log("checking return values: ");
             checkUniqueNames(arr_return_array, "return value");
         }
         if (arr_locals_array.length !== 0) {
-            // console.log("checking local variables: ");
+            console.log("checking local variables: ");
             checkUniqueNames(arr_locals_array, "local variable");
         }
 
         const all = [...arr_func_parameters, ...arr_return_array, ...arr_locals_array];
-        checkUniqueNames(all, "variable");
+        if (all.length > 0) {
+            checkUniqueNames(all, "variable");
+        }
 
         // проверка локальных переменных тела функции
         const declared = new Set<string>();
@@ -278,28 +283,6 @@ const getFunnierAst = {
             postcondition: postopt_ast,
             body: parsedStatement } as AnnotatedFunctionDef;
         },
-
-    // While := "while" "(" Condition ")" InvariantOpt? VariantOpt? Statement
-    While(_while, left_paren, condition, right_paren, invariantOpt, variantOpt, body) {
-        const invariant = invariantOpt.children.length > 0 ? invariantOpt.children[0].parse() : null;
-        const variant = variantOpt.children.length > 0 ? variantOpt.children[0].parse() : null;
-        const condition_parsed = condition.children.length > 0 ? condition.children[0].parse() : null;
-        const body_parsed = body.children.length > 0 ? body.children[0].parse() : null;
-        
-        return { 
-            type: "while", 
-            condition: condition_parsed, 
-            invariant: invariant, 
-            variant: variant, 
-            body: body_parsed 
-        } as AnnotatedWhileStmt;
-    },
-
-    // VariantOpt = "variant" Expr
-    VariantOpt(_variant, expr) {
-        return expr.parse();
-    },
-
 } satisfies FunnierActionDict<any>;
 
 export const semantics: FunnySemanticsExt = grammar.Funnier.createSemantics() as FunnySemanticsExt;
