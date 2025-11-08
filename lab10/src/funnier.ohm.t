@@ -4,6 +4,9 @@ Funnier <: Funny {
 
     Formula = variable "(" ParamList ")" "=>" Predicate ";"
 
+    // предусловие функции
+    Preopt := "requires" Predicate ("and" Predicate)*
+
     // постусловие функции
     Postopt = "ensures" Predicate
     

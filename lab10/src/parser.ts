@@ -206,6 +206,33 @@ const getFunnierAst = {
         } as Formula;
     },
 
+    // Preopt := "requires" Predicate ("and" Predicate)*
+    Preopt(_requires, firstPred, ands, otherPreds) {
+        let conditions = [firstPred.parse()];
+        
+        if (otherPreds.children && otherPreds.children.length > 0) {
+            otherPreds.children.forEach((child: any) => {
+                conditions.push(child.parse());
+            });
+        }
+
+        if (conditions.length === 1) {
+            return conditions[0];
+        }
+
+        // Если условий несколько, строим дерево с оператором "and"
+        let result = conditions[0];
+        for (let i = 1; i < conditions.length; i++) {
+            result = {
+                type: "and",
+                left: result,
+                right: conditions[i]
+            };
+        }
+
+        return result;
+    },
+
     // Postopt = "ensures" Predicate
     Postopt(_ensures, predicate) {
         return predicate.parse();
