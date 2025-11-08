@@ -1,6 +1,6 @@
 import { MatchResult, Semantics } from 'ohm-js';
 import grammar, { FunnierActionDict } from './funnier.ohm-bundle';
-import { AnnotatedModule, Formula, AnnotatedFunctionDef, AnnotatedWhileStmt } from './funnier';
+import { AnnotatedModule, Formula, AnnotatedFunctionDef } from './funnier';
 import { getFunnyAst } from '@tvm/lab08';
 import { ParameterDef, Statement, Predicate, Expr } from '../../lab08/src/funny';
 
@@ -286,19 +286,6 @@ const getFunnierAst = {
             };
         }
         return result;
-    },
-
-    // While = "while" "(" Condition ")" InvariantOpt? Statement
-    While(_while, left_paren, condition, right_paren, invariantOpt, body) {
-        console.log("While");
-        const invariant = invariantOpt.children.length > 0 ? invariantOpt.parse() : null;
-        
-        return { 
-            type: "while", 
-            condition: condition.parse(), 
-            invariant: invariant, 
-            body: body.parse()
-        } as AnnotatedWhileStmt;
     },
 
     /*

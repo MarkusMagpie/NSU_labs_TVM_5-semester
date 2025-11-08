@@ -17,14 +17,3 @@ export interface Formula {
 export interface AnnotatedFunctionDef extends FunctionDef {
     postcondition: Predicate | null;
 }
-
-// + интерфейс для расширенного оператора while
-export interface AnnotatedWhileStmt {
-    type: "while";
-    condition: Condition;
-    invariant: Predicate | null;
-    body: Statement;
-}
-
-// + обнова Statement чтобы включить AnnotatedWhileStmt
-export type AnnotatedStatement = Statement | AnnotatedWhileStmt;
