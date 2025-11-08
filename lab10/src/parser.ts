@@ -1,6 +1,6 @@
 import { MatchResult, Semantics } from 'ohm-js';
 import grammar, { FunnierActionDict } from './funnier.ohm-bundle';
-import { AnnotatedModule, Formula, AnnotatedFunctionDef } from './funnier';
+import { AnnotatedModule, Formula, AnnotatedFunctionDef, AnnotatedWhileStmt } from './funnier';
 import { getFunnyAst } from '@tvm/lab08';
 import { ParameterDef, Statement, Predicate, Expr } from '../../lab08/src/funny';
 
@@ -207,10 +207,11 @@ const getFunnierAst = {
     },
 
     // Preopt := "requires" Predicate ("and" Predicate)*
-    Preopt(_requires, firstPred, ands, otherPreds) {
+    Preopt(_requires, firstPred, _ands, otherPreds) {
+        console.log("Preopt");
         let conditions = [firstPred.parse()];
         
-        if (otherPreds.children && otherPreds.children.length > 0) {
+        if (otherPreds && otherPreds.children && otherPreds.children.length > 0) {
             otherPreds.children.forEach((child: any) => {
                 conditions.push(child.parse());
             });
@@ -220,9 +221,9 @@ const getFunnierAst = {
             return conditions[0];
         }
 
-        // Если условий несколько, строим дерево с оператором "and"
+        // если conditions.length > 1 строится дерево с оператором "and"
         let result = conditions[0];
-        for (let i = 1; i < conditions.length; i++) {
+        for (let i = 1; i < conditions.length; ++i) {
             result = {
                 type: "and",
                 left: result,
@@ -233,9 +234,71 @@ const getFunnierAst = {
         return result;
     },
 
-    // Postopt = "ensures" Predicate
-    Postopt(_ensures, predicate) {
-        return predicate.parse();
+    // Postopt = "ensures" Predicate ("and" Predicate)*
+    Postopt(_ensures, firstPred, _ands, otherPreds) {
+        console.log("Postopt");
+        let conditions = [firstPred.parse()];
+        
+        if (otherPreds && otherPreds.children && otherPreds.children.length > 0) {
+            otherPreds.children.forEach((child: any) => {
+                conditions.push(child.parse());
+            });
+        }
+
+        if (conditions.length === 1) {
+            return conditions[0];
+        }
+
+        // если conditions.length > 1 строится дерево с оператором "and"
+        let result = conditions[0];
+        for (let i = 1; i < conditions.length; ++i) {
+            result = {
+                type: "and",
+                left: result,
+                right: conditions[i]
+            };
+        }
+
+        return result;
+    },
+
+    // InvariantOpt := "invariant" Predicate ("and" Predicate)*
+    InvariantOpt(_invariant, firstPred, _ands, otherPreds) {
+        console.log("InvariantOpt");
+        let conditions = [firstPred.parse()];
+        
+        if (otherPreds && otherPreds.children && otherPreds.children.length > 0) {
+            otherPreds.children.forEach((child: any) => {
+                conditions.push(child.parse());
+            });
+        }
+
+        if (conditions.length === 1) {
+            return conditions[0];
+        }
+
+        let result = conditions[0];
+        for (let i = 1; i < conditions.length; ++i) {
+            result = {
+                type: "and",
+                left: result,
+                right: conditions[i]
+            };
+        }
+        return result;
+    },
+
+    // While = "while" "(" Condition ")" InvariantOpt? Statement
+    While(_while, left_paren, condition, right_paren, invariantOpt, body) {
+        console.log("While");
+        const invariant = invariantOpt.children.length > 0 ? invariantOpt.parse() : null;
+        
+        return { 
+            type: "while", 
+            condition: condition.parse(), 
+            invariant: invariant, 
+            body: body.parse()
+        } as AnnotatedWhileStmt;
     },
 
     /*
@@ -249,14 +312,22 @@ const getFunnierAst = {
     */
     Function(var_name, left_paren, params_opt, right_paren, preopt, returns_str, returns_list, postopt, usesopt, statement: any) {
         const func_name = var_name.sourceString;
-        const arr_func_parameters = params_opt.parse() as ParameterDef[];
-        const preopt_ast = preopt.parse ? preopt.parse() : null; // предусловие функции
-        const arr_return_array = returns_list.parse() as ParameterDef[];
-        const postopt_ast = postopt.ast ? postopt.parse() : null; // постусловие функции
+        const arr_func_parameters = params_opt.asIteration().children.map(x => x.parse()) as ParameterDef[];
+
+        // Preopt = ("requires" Predicate ("and" Predicate)*)?
+        const preopt_ast = preopt.parse ? preopt.parse() : null; 
+        // const preopt_ast = preopt.children.length > 0 
+        // ? preopt.children[0].children[1].children.map((x: any) => x.parse())
+        // : [];
+        
+        const arr_return_array = returns_list.asIteration().children.map(x => x.parse()) as ParameterDef[];
+
+        // Postopt = ("ensures" Predicate ("and" Predicate)*)?
+        const postopt_ast = postopt.ast ? postopt.parse() : null;
 
         // UsesOpt = ("uses" ParamList)? 
         const arr_locals_array = usesopt.children.length > 0
-        ? usesopt.children[0].children[1].children.map((x: any) => x.parse()) as ParameterDef[]
+        ? usesopt.children[0].children[1].asIteration().children.map((x: any) => x.parse()) as ParameterDef[]
         : [];
 
         if (arr_func_parameters.length !== 0) {
