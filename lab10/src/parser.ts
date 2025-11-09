@@ -1,6 +1,6 @@
 import { MatchResult, Semantics } from 'ohm-js';
 import grammar, { FunnierActionDict } from './funnier.ohm-bundle';
-import { AnnotatedModule, Formula, AnnotatedFunctionDef, AnnotatedWhileStmt } from './funnier';
+import { AnnotatedModule, Formula, AnnotatedFunctionDef } from './funnier';
 import { getFunnyAst } from '@tvm/lab08';
 import { ParameterDef, Statement, Predicate, Expr, TrueCond, FalseCond, ParenCond } from '../../lab08/src/funny';
 
@@ -17,26 +17,6 @@ function checkUniqueNames(items: ParameterDef[] | ParameterDef, kind: string) {
         }
         nameMap.set(item.name, idx);
     });
-}
-
-function checkUniqueNamesInModule(module: AnnotatedModule) {
-    const names = new Set<string>();
-    
-    // проверка имен в формулах
-    for (const formula of module.formulas) {
-        if (names.has(formula.name)) {
-            throw new Error(`duplicate formula name '${formula.name}'`);
-        }
-        names.add(formula.name);
-    }
-    
-    // проверка имена функций
-    for (const func of module.functions) {
-        if (names.has(func.name)) {
-            throw new Error(`duplicate function name '${func.name}'`);
-        }
-        names.add(func.name);
-    }
 }
 
 function collectNamesInNode(node: any, out: Set<string>) {
@@ -267,22 +247,11 @@ const getFunnierAst = {
         return firstPred.parse();
     },
 
-    // While = "while" "(" Condition ")" InvariantOpt? Statement
-    While(_while, _lp, condition, _rp, invariantOpt, body) {
-        const invariant = invariantOpt.parse ? invariantOpt.parse() : null;
-        return {
-            type: "while",
-            condition: condition.parse(),
-            invariant: invariant,
-            body: body.parse()
-        } as AnnotatedWhileStmt;
-    },
-
     /*
     Function := variable 
         "(" ParamList ")" 
         Preopt? 
-        "returns" ParamListNonEmpty 
+        "returns" ("void" | ParamListNonEmpty) 
         Postopt?
         UsesOpt? 
         Statement
@@ -296,8 +265,11 @@ const getFunnierAst = {
         // const preopt_ast = preopt.children.length > 0 
         // ? preopt.children[0].children[1].children.map((x: any) => x.parse())
         // : [];
-        
-        const arr_return_array = returns_list.asIteration().children.map(x => x.parse()) as ParameterDef[];
+
+        let arr_return_array: ParameterDef[] = [];
+        if (returns_list && returns_list.sourceString && returns_list.sourceString.trim() !== "void") {
+            arr_return_array = returns_list.asIteration().children.map(x => x.parse()) as ParameterDef[];
+        }
 
         // Postopt = ("ensures" Predicate ("and" Predicate)*)?
         const postopt_ast = postopt.ast ? postopt.parse() : null;
@@ -354,6 +326,22 @@ const getFunnierAst = {
             postcondition: postopt_ast,
             body: parsedStatement } as AnnotatedFunctionDef;
         },
+
+    // ImplyPred = OrPred ("->" ImplyPred)?
+    ImplyPred(first, arrows, rest: any) {
+        const left = first.parse();
+
+        if (rest && rest.children && rest.children.length > 0) {
+            const rightNode = rest.children ? rest.children[0].children[1] : null;
+            const right = rightNode.parse();
+
+            // A -> B === (!A) || B
+            const notA = { type: "not", predicate: left };
+            return { type: "or", left: notA, right };
+        }
+
+        return left;
+    },
 
     // OrPred = AndPred ("or" AndPred)*
     OrPred(first, ors, rest: any) {
@@ -452,6 +440,10 @@ const getFunnierAst = {
         return { kind: "paren", inner: inner_pred } as ParenCond;
     },
 
+    Statement_function_call_statement(func_call, semicolon) {
+        return func_call.parse();
+    }
+
 } satisfies FunnierActionDict<any>;
 
 export const semantics: FunnySemanticsExt = grammar.Funnier.createSemantics() as FunnySemanticsExt;
@@ -475,8 +467,6 @@ export function parseFunnier(source: string, origin?: string): AnnotatedModule
     }
 
     const ast_module = semantics(matchResult).parse();
-    // НОВОЕ
-    // checkUniqueNamesInModule(ast_module);
     checkFunctionCalls(ast_module);
     return ast_module;
 }

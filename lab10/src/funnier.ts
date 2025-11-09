@@ -17,12 +17,3 @@ export interface Formula {
 export interface AnnotatedFunctionDef extends FunctionDef {
     postcondition: Predicate | null;
 }
-
-export interface AnnotatedWhileStmt {
-    type: "while";
-    condition: Condition;
-    invariant: Predicate | null;
-    body: Statement;
-}
-
-export type AnnotatedStatement = Statement | AnnotatedWhileStmt;

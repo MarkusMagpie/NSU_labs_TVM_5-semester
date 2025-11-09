@@ -14,12 +14,13 @@ Funnier <: Funny {
     Function := variable 
         "(" ParamList ")" 
         Preopt? 
-        "returns" ParamListNonEmpty 
+        "returns" ("void" | ParamListNonEmpty) 
         Postopt?
         UsesOpt? 
         Statement
 
-    Predicate := OrPred
+    Predicate := ImplyPred
+    ImplyPred = OrPred ("->" OrPred)?
     OrPred = AndPred ("or" AndPred)*
     AndPred = NotPred ("and" NotPred)*
     NotPred = ("not")* Atom
@@ -34,5 +35,11 @@ Funnier <: Funny {
 
     // пишу обновленный инвариант к правилу: While
     InvariantOpt := "invariant" Predicate 
-    While := "while" "(" Predicate ")" InvariantOpt? Statement
+
+    // вызов функции как оператора
+    Statement := Assignment
+        | Block
+        | Conditional
+        | While
+        | FunctionCall ";" -- function_call_statement
 }

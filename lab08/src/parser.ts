@@ -165,7 +165,9 @@ export const getFunnyAst = {
     // Param = variable ":" Type
     Param(name, colon, type: any) {
         let paramName = name.sourceString;
-        return {type: "param", name: paramName} as ast.ParameterDef;
+        const typeAst = type.parse();
+        const varType = typeAst && typeAst.isArray ? "int[]" : "int";
+        return {type: "param", name: paramName, varType: varType} as ast.ParameterDef;
     },
     // ParamList = ListOf<Param, ",">
     ParamList(list) {
@@ -246,11 +248,14 @@ export const getFunnyAst = {
             body: parsedStatement } as ast.FunctionDef;
     },
 
-    Type_int(arg0) {
-        return "int";
+    // Type = "int"    -- int
+    Type_int(_int) {
+        return { base: "int", isArray: false };
     },
-    Type_array(arg0, arg1) {
-        return "int[]";  
+
+    // Type = "int" "[]"   -- array
+    Type_array(_int, _brackets) {
+        return { base: "int", isArray: true };
     },
 
 

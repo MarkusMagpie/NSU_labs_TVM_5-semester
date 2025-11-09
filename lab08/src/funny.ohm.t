@@ -16,10 +16,8 @@ Funny <: Arithmetic {
     Preopt = "requires" Predicate 
     UsesOpt = "uses" ParamList 
 
-    Type = "int"    -- int
-        | "int" "[]"   -- array
-
-
+    Type = "int" "[]" -- array
+        | "int" -- int
 
     // В Funny есть четыре типа операторов: присваивание, блок, условный оператор, цикл. 
     Statement = Assignment

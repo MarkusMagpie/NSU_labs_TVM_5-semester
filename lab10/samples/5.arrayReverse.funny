@@ -7,6 +7,6 @@ rev(a: int[], b: int[], n: int)
         b[0] = a[0];
     else
     {
-        rev(a, )
+        rev(a, b, n-1);
     }
 }
