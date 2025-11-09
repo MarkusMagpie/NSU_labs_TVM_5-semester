@@ -19,6 +19,20 @@ Funnier <: Funny {
         UsesOpt? 
         Statement
 
-    // пишу обновленный инвариант к правилу: While = "while" "(" Condition ")" InvariantOpt? Statement
-    InvariantOpt := "invariant" Predicate ("and" Predicate)* 
+    Predicate := OrPred
+    OrPred = AndPred ("or" AndPred)*
+    AndPred = NotPred ("and" NotPred)*
+    NotPred = ("not")* Atom
+
+    // Atom это базовые варианты предиката
+    Atom = Quantifier     -- quantifier
+        | FormulaRef      -- formula_ref
+        | "true"          -- true
+        | "false"         -- false
+        | Comparison      -- comparison
+        | "(" Predicate ")" -- paren
+
+    // пишу обновленный инвариант к правилу: While
+    InvariantOpt := "invariant" Predicate 
+    While := "while" "(" Predicate ")" InvariantOpt? Statement
 }

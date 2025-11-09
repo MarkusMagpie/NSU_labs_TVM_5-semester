@@ -1,8 +1,8 @@
 import { MatchResult, Semantics } from 'ohm-js';
 import grammar, { FunnierActionDict } from './funnier.ohm-bundle';
-import { AnnotatedModule, Formula, AnnotatedFunctionDef } from './funnier';
+import { AnnotatedModule, Formula, AnnotatedFunctionDef, AnnotatedWhileStmt } from './funnier';
 import { getFunnyAst } from '@tvm/lab08';
-import { ParameterDef, Statement, Predicate, Expr } from '../../lab08/src/funny';
+import { ParameterDef, Statement, Predicate, Expr, TrueCond, FalseCond, ParenCond } from '../../lab08/src/funny';
 
 function checkUniqueNames(items: ParameterDef[] | ParameterDef, kind: string) {
     // новая строка - преобразую одиночный объект в массив
@@ -262,30 +262,20 @@ const getFunnierAst = {
         return result;
     },
 
-    // InvariantOpt := "invariant" Predicate ("and" Predicate)*
-    InvariantOpt(_invariant, firstPred, _ands, otherPreds) {
-        console.log("InvariantOpt");
-        let conditions = [firstPred.parse()];
-        
-        if (otherPreds && otherPreds.children && otherPreds.children.length > 0) {
-            otherPreds.children.forEach((child: any) => {
-                conditions.push(child.parse());
-            });
-        }
+    // InvariantOpt := "invariant" Predicate 
+    InvariantOpt(_invariant, firstPred) {
+        return firstPred.parse();
+    },
 
-        if (conditions.length === 1) {
-            return conditions[0];
-        }
-
-        let result = conditions[0];
-        for (let i = 1; i < conditions.length; ++i) {
-            result = {
-                type: "and",
-                left: result,
-                right: conditions[i]
-            };
-        }
-        return result;
+    // While = "while" "(" Condition ")" InvariantOpt? Statement
+    While(_while, _lp, condition, _rp, invariantOpt, body) {
+        const invariant = invariantOpt.parse ? invariantOpt.parse() : null;
+        return {
+            type: "while",
+            condition: condition.parse(),
+            invariant: invariant,
+            body: body.parse()
+        } as AnnotatedWhileStmt;
     },
 
     /*
@@ -364,6 +354,104 @@ const getFunnierAst = {
             postcondition: postopt_ast,
             body: parsedStatement } as AnnotatedFunctionDef;
         },
+
+    // OrPred = AndPred ("or" AndPred)*
+    OrPred(first, ors, rest: any) {
+        let result = first.parse();
+
+        const items = [];
+        if (rest) {
+            if (rest.children) {
+                items.push(...rest.children);
+            } else if (Array.isArray(rest)) {
+                items.push(...rest);
+            }
+        }
+
+        for (const item of items) {
+            const rightNode = item.children ? item.children[1] : null;
+            const right = rightNode.parse();
+            result = { type: "or", left: result, right };
+        }
+        return result;
+    },
+
+    // AndPred = NotPred ("and" NotPred)*
+    AndPred(first, ands, rest: any) {
+        let result = first.parse();
+
+        // const items = rest 
+        // ? rest.asIteration().children 
+        // : (rest && rest.children) || [];
+
+        const items = [];
+        if (rest) {
+            if (rest.children) {
+                items.push(...rest.children);
+            } else if (Array.isArray(rest)) {
+                items.push(...rest);
+            }
+        }
+
+        for (const it of items) {
+            const andNode = it.children ? it.children[1] : null;
+            const right = andNode.parse();
+            result = { type: "and", left: result, right: right };
+        }
+        return result;
+    },
+
+    // NotPred = ("not")* Atom
+    NotPred(nots: any, atom: any) {
+        let result = atom.parse();
+
+        // const notsArr = nots 
+        //     ? nots.asIteration().children
+        //     :(Array.isArray(nots) ? nots : []);
+
+        const notsArr = [];
+        if (nots) {
+            if (nots.children) {
+                notsArr.push(...nots.children);
+            } else if (Array.isArray(nots)) {
+                notsArr.push(...nots);
+            }
+        }
+
+        for (let i = 0; i < notsArr.length; ++i) {
+            result = { type: "not", predicate: result };
+        }
+
+        return result;
+    },
+
+    /*
+    Atom = Quantifier     -- quantifier
+        | FormulaRef      -- formula_ref
+        | "true"          -- true
+        | "false"         -- false
+        | Comparison      -- comparison
+        | "(" Predicate ")" -- paren
+    */
+    Atom_quantifier(arg0) {
+        return arg0;
+    },
+    Atom_formula_ref(arg0) {
+        return arg0;
+    },
+    Atom_true(t) {
+        return { kind: "true" } as TrueCond;
+    },
+    Atom_false(f) {
+        return { kind: "false" } as FalseCond;
+    },
+    Atom_comparison(cmp) {
+        return cmp;
+    },
+    Atom_paren(left_paren, inner_pred: any, right_paren) {
+        return { kind: "paren", inner: inner_pred } as ParenCond;
+    },
+
 } satisfies FunnierActionDict<any>;
 
 export const semantics: FunnySemanticsExt = grammar.Funnier.createSemantics() as FunnySemanticsExt;
