@@ -369,8 +369,8 @@ export const getFunnyAst = {
         return { kind: 'or', left: cond1_not, right: cond2 } as ast.OrCond;
     },
     // Condition = "(" Condition ")"
-    Condition_paren(left_paren, cond: any, right_paren) {
-        return { kind: "paren", inner: cond } as ast.ParenCond;
+    ParenOp(left_paren, cond: Node, right_paren) {
+        return { kind: "paren", inner: cond.parse() };
     },
     /*
     Comparison = Expr "==" Expr                 -- eq
@@ -441,9 +441,6 @@ export const getFunnyAst = {
     },
     Predicate_comparison(cmp) {
         return cmp;
-    },
-    Predicate_paren(left_paren, inner_pred: any, right_paren) {
-        return { kind: "paren", inner: inner_pred } as ast.ParenCond;
     },
     /*
     Quantifier = ("forall" | "exists") 

@@ -56,6 +56,7 @@ Funny <: Arithmetic {
     AndOp<C> = C "and" C
     OrOp<C> = C "or" C
     NotOp<C> = "not" C
+    ParenOp<C> = "(" C ")"
 
     // условия
     Condition = 
@@ -66,7 +67,7 @@ Funny <: Arithmetic {
         | AndOp<Condition>             -- and
         | OrOp<Condition>              -- or
         | Condition "->" Condition              -- implies
-        | "(" Condition ")"                     -- paren
+        | ParenOp<Condition>                     -- paren
 
     Comparison = Expr "==" Expr                 -- eq
         | Expr "!=" Expr                        -- neq
@@ -86,7 +87,7 @@ Funny <: Arithmetic {
         | NotOp<Predicate>                      -- not
         | AndOp<Predicate>             -- and
         | OrOp<Predicate>              -- or
-        | "(" Predicate ")"                     -- paren
+        | ParenOp<Predicate>                     -- paren
     // кванторы
     Quantifier = ("forall" | "exists") 
         "(" Param "|" Predicate ")"
