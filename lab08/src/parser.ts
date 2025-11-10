@@ -337,41 +337,117 @@ export const getFunnyAst = {
 
 
     // CONDITIONS+COMPARISONS
-    // Condition = "true"
-    Condition_true(t) {
-        return { kind: "true" } as ast.TrueCond;
-    },
-    // Condition = "false"
-    Condition_false(f) {
-        return { kind: "false" } as ast.FalseCond;
-    },
-    // Condition = Comparison
-    Condition_comparison(arg0) {
-        const arg_parsed = arg0.children.length > 0 ? arg0.children[0].parse() : null;
-        return arg_parsed;
-    },
-    // Condition = "not" Condition
-    NotOp(not, cond: Node) {
-        return { kind: "not", condition: cond.parse() };
-    },
-    // Condition = Condition "and" Condition
+
+    // AndOp<C> = C "and" C
     AndOp(cond1: Node, and, cond2: Node) {
         return { kind: "and", left: cond1.parse(), right: cond2.parse() };
     },
-    // Condition = Condition "or" Condition
+    // OrOp<C> = C "or" C
     OrOp(cond1: Node, or, cond2: Node) {
         return { kind: "or", left: cond1.parse(), right: cond2.parse() };
     },
-    // Condition = Condition "->" Condition
-    Condition_implies(cond1: any, implies, cond2: any) {
-        // A -> B = (!A) or B 
-        let cond1_not = { kind: 'not', condition: cond1 as ast.Condition } as ast.NotCond;
-        return { kind: 'or', left: cond1_not, right: cond2 } as ast.OrCond;
+    // NotOp<C> = "not" C
+    NotOp(not, cond: Node) {
+        return { kind: "not", condition: cond.parse() };
     },
-    // Condition = "(" Condition ")"
+    // ParenOp<C> = "(" C ")"
     ParenOp(left_paren, cond: Node, right_paren) {
         return { kind: "paren", inner: cond.parse() };
     },
+
+    // ImplyCond = OrCond ("->" ImplyCond)?
+    ImplyCond(first, arrows, rest: any) {
+        const left = first.parse();
+
+        if (rest && rest.children && rest.children.length > 0) {
+            const rightNode = rest.children ? rest.children[0].children[1] : null;
+            const right = rightNode.parse();
+
+            // A -> B === (!A) || B
+            const notA = { kind: "not", condition: left };
+            return { kind: "or", left: notA, right };
+        }
+
+        return left;
+    },
+
+    // OrCond = AndCond ("or" AndCond)*
+    OrCond(first, ors, rest: any) {
+        let result = first.parse();
+
+        const items = [];
+        if (rest) {
+            if (rest.children) {
+                items.push(...rest.children);
+            }
+        }
+
+        for (const item of items) {
+            const rightNode = item.children ? item.children[1] : null;
+            const right_parsed = rightNode.parse();
+            result = { kind: "or", left: result, right: right_parsed };
+        }
+
+        return result;
+    },
+
+    // AndCond = NotCond ("and" NotCond)*
+    AndCond(first, ands, rest: any) {
+        let result = first.parse();
+
+        const items = [];
+        if (rest) {
+            if (rest.children) {
+                items.push(...rest.children);
+            } 
+        }
+
+        for (const it of items) {
+            const andNode = it.children ? it.children[1] : null;
+            const right_parsed = andNode.parse();
+            result = { kind: "and", left: result, right: right_parsed };
+        }
+        return result;
+    },
+
+    // NotCond = ("not")* AtomCond
+    NotCond(nots: any, atom: any) {
+        let result = atom.parse();
+
+        const notsArr = [];
+        if (nots) {
+            if (nots.children) {
+                notsArr.push(...nots.children);
+            }
+        }
+
+        for (let i = 0; i < notsArr.length; ++i) {
+            result = { kind: "not", condition: result };
+        }
+
+        return result;
+    },
+
+    /*
+    AtomCond = "true"           -- true
+        | "false"               -- false
+        | Comparison            -- comparison
+        | "(" Condition ")"     -- paren
+    */
+    AtomCond_true(t) {
+        return { kind: "true" } as ast.TrueCond;
+    },
+    AtomCond_false(f) {
+        return { kind: "false" } as ast.FalseCond;
+    },
+    AtomCond_comparison(arg0) {
+        const arg_parsed = arg0.children.length > 0 ? arg0.children[0].parse() : null;
+        return arg_parsed;
+    },
+    AtomCond_paren(left_paren, cond: any, right_paren) {
+        return { kind: "paren", inner: cond.parse() } as ast.ParenCond;
+    },
+
     /*
     Comparison = Expr "==" Expr                 -- eq
         | Expr "!=" Expr                        -- neq
@@ -416,44 +492,110 @@ export const getFunnyAst = {
 
 
     // ПРЕДИКАТЫ
+    // ImplyPred = OrPred ("->" ImplyPred)?
+    ImplyPred(first, arrows, rest: any) {
+        const left = first.parse();
+
+        if (rest && rest.children && rest.children.length > 0) {
+            const rightNode = rest.children ? rest.children[0].children[1] : null;
+            const right = rightNode.parse();
+
+            // A -> B === (!A) || B
+            const notA = { kind: "not", predicate: left };
+            return { kind: "or", left: notA, right };
+        }
+
+        return left;
+    },
+
+    // OrPred = AndPred ("or" AndPred)*
+    OrPred(first, ors, rest: any) {
+        let result = first.parse();
+
+        const items = [];
+        if (rest) {
+            if (rest.children) {
+                items.push(...rest.children);
+            }
+        }
+
+        for (const item of items) {
+            const rightNode = item.children ? item.children[1] : null;
+            const right_parsed = rightNode.parse();
+            result = { kind: "or", left: result, right: right_parsed };
+        }
+
+        return result;
+    },
+
+    // AndPred = NotPred ("and" NotPred)*
+    AndPred(first, ands, rest: any) {
+        let result = first.parse();
+
+        const items = [];
+        if (rest) {
+            if (rest.children) {
+                items.push(...rest.children);
+            }
+        }
+
+        for (const it of items) {
+            const andNode = it.children ? it.children[1] : null;
+            const right_parsed = andNode.parse();
+            result = { kind: "and", left: result, right: right_parsed };
+        }
+
+        return result;
+    },
+
+    // NotPred = ("not")* Atom
+    NotPred(nots: any, atom: any) {
+        let result = atom.parse();
+
+        const notsArr = [];
+        if (nots) {
+            if (nots.children) {
+                notsArr.push(...nots.children);
+            }
+        }
+
+        for (let i = 0; i < notsArr.length; ++i) {
+            result = { kind: "not", predicate: result };
+        }
+
+        return result;
+    },
+
     /*
-    Predicate = Quantifier                      -- quantifier
-        | FormulaRef                            -- formula_ref
-        | "true"                                -- true
-        | "false"                               -- false
-        | Comparison                            -- comparison
-        | "not" Predicate                       -- not
-        | Predicate "and" Predicate             -- and
-        | Predicate "or" Predicate              -- or
-        | "(" Predicate ")"                     -- paren
+    AtomPred = Quantifier     -- quantifier
+        | FormulaRef          -- formula_ref
+        | "true"              -- true
+        | "false"             -- false
+        | Comparison          -- comparison
+        | "(" Predicate ")"   -- paren
     */
-    Predicate_quantifier(arg0) {
+    AtomPred_quantifier(arg0) {
         return arg0;
     },
-    Predicate_formula_ref(arg0) {
+    AtomPred_formula_ref(arg0) {
         return arg0;
     },
-    Predicate_true(t) {
-        return { kind: "true" } as ast.TrueCond;
+    AtomPred_true(t) {
+        return { kind: "true" };
     },
-    Predicate_false(f) {
-        return { kind: "false" } as ast.FalseCond;
+    AtomPred_false(f) {
+        return { kind: "false" };
     },
-    Predicate_comparison(cmp) {
+    AtomPred_comparison(cmp) {
         return cmp;
     },
+    AtomPred_paren(left_paren, inner_pred: any, right_paren) {
+        return { kind: "paren", inner: inner_pred };
+    },
+
     /*
     Quantifier = ("forall" | "exists") 
         "(" Param "|" Predicate ")"
-    */
-    /*
-    export interface Quantifier {
-        kind: "quantifier";
-        quant: "forall" | "exists";
-        varName: string;
-        varType: "int" | "int[]";
-        body: Predicate;
-    }
     */
     Quantifier(quant, left_paren, param: any, bar, body: any, right_paren) {
         const paramAst = param.parse() as ast.ParameterDef;

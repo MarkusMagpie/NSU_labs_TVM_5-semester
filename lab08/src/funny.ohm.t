@@ -53,21 +53,29 @@ Funny <: Arithmetic {
     // обращение к элементу массива
     ArrayAccess = variable "[" Expr "]"
 
+
+
+    // Conditions (not > and > or > -> (right))
+
     AndOp<C> = C "and" C
     OrOp<C> = C "or" C
     NotOp<C> = "not" C
     ParenOp<C> = "(" C ")"
+    
+    Condition = ImplyCond
+    // импликация - правоассоциативна
+    ImplyCond = OrCond ("->" ImplyCond)?
+    // дизъюнкция - левоассоциативна
+    OrCond = AndCond ("or" AndCond)*
+    // конъюнкция - левоассоциативна
+    AndCond = NotCond ("and" NotCond)*
+    // отрицания (несколько) + атомы условий
+    NotCond = ("not")* AtomCond
 
-    // условия
-    Condition = 
-        "true"                          -- true
-        | "false"                               -- false
-        | Comparison                            -- comparison
-        | NotOp<Condition>                       -- not
-        | AndOp<Condition>             -- and
-        | OrOp<Condition>              -- or
-        | Condition "->" Condition              -- implies
-        | ParenOp<Condition>                     -- paren
+    AtomCond = "true"           -- true
+        | "false"               -- false
+        | Comparison            -- comparison
+        | "(" Condition ")"     -- paren
 
     Comparison = Expr "==" Expr                 -- eq
         | Expr "!=" Expr                        -- neq
@@ -78,16 +86,20 @@ Funny <: Arithmetic {
 
 
 
-    // предикаты
-    Predicate = Quantifier                      -- quantifier
-        | FormulaRef                            -- formula_ref
-        | "true"                                -- true
-        | "false"                               -- false
-        | Comparison                            -- comparison
-        | NotOp<Predicate>                      -- not
-        | AndOp<Predicate>             -- and
-        | OrOp<Predicate>              -- or
-        | ParenOp<Predicate>                     -- paren
+    // предикаты (not > and > or > -> (right))
+    Predicate = ImplyPred
+    ImplyPred = OrPred ("->" ImplyPred)?
+    OrPred = AndPred ("or" AndPred)*
+    AndPred = NotPred ("and" NotPred)*
+    NotPred = ("not")* AtomPred
+
+    AtomPred = Quantifier     -- quantifier
+        | FormulaRef          -- formula_ref
+        | "true"              -- true
+        | "false"             -- false
+        | Comparison          -- comparison
+        | "(" Predicate ")"   -- paren
+
     // кванторы
     Quantifier = ("forall" | "exists") 
         "(" Param "|" Predicate ")"

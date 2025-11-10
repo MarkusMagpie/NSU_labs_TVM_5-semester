@@ -38,7 +38,7 @@ const getFunnierAst = {
 
     // Preopt := "requires" Predicate ("and" Predicate)*
     Preopt(_requires, firstPred, _ands, otherPreds) {
-        console.log("Preopt");
+        // console.log("Preopt");
         let conditions = [firstPred.parse()];
         
         if (otherPreds && otherPreds.children && otherPreds.children.length > 0) {
@@ -66,7 +66,7 @@ const getFunnierAst = {
 
     // Postopt = "ensures" Predicate ("and" Predicate)*
     Postopt(_ensures, firstPred, _ands, otherPreds) {
-        console.log("Postopt");
+        // console.log("Postopt");
         let conditions = [firstPred.parse()];
         
         if (otherPreds && otherPreds.children && otherPreds.children.length > 0) {
@@ -130,15 +130,15 @@ const getFunnierAst = {
         : [];
 
         if (arr_func_parameters.length !== 0) {
-            console.log("checking parameters: ");
+            // console.log("checking parameters: ");
             checkUniqueNames(arr_func_parameters, "parameter");
         }
         if (arr_return_array.length !== 0) {
-            console.log("checking return values: ");
+            // console.log("checking return values: ");
             checkUniqueNames(arr_return_array, "return value");
         }
         if (arr_locals_array.length !== 0) {
-            console.log("checking local variables: ");
+            // console.log("checking local variables: ");
             checkUniqueNames(arr_locals_array, "local variable");
         }
 
@@ -176,119 +176,6 @@ const getFunnierAst = {
             postcondition: postopt_ast,
             body: parsedStatement } as AnnotatedFunctionDef;
         },
-
-    // ImplyPred = OrPred ("->" ImplyPred)?
-    ImplyPred(first, arrows, rest: any) {
-        const left = first.parse();
-
-        if (rest && rest.children && rest.children.length > 0) {
-            const rightNode = rest.children ? rest.children[0].children[1] : null;
-            const right = rightNode.parse();
-
-            // A -> B === (!A) || B
-            const notA = { type: "not", predicate: left };
-            return { type: "or", left: notA, right };
-        }
-
-        return left;
-    },
-
-    // OrPred = AndPred ("or" AndPred)*
-    OrPred(first, ors, rest: any) {
-        let result = first.parse();
-
-        const items = [];
-        if (rest) {
-            if (rest.children) {
-                items.push(...rest.children);
-            } else if (Array.isArray(rest)) {
-                items.push(...rest);
-            }
-        }
-
-        for (const item of items) {
-            const rightNode = item.children ? item.children[1] : null;
-            const right = rightNode.parse();
-            result = { type: "or", left: result, right };
-        }
-        return result;
-    },
-
-    // AndPred = NotPred ("and" NotPred)*
-    AndPred(first, ands, rest: any) {
-        let result = first.parse();
-
-        // const items = rest 
-        // ? rest.asIteration().children 
-        // : (rest && rest.children) || [];
-
-        const items = [];
-        if (rest) {
-            if (rest.children) {
-                items.push(...rest.children);
-            } else if (Array.isArray(rest)) {
-                items.push(...rest);
-            }
-        }
-
-        for (const it of items) {
-            const andNode = it.children ? it.children[1] : null;
-            const right = andNode.parse();
-            result = { type: "and", left: result, right: right };
-        }
-        return result;
-    },
-
-    // NotPred = ("not")* Atom
-    NotPred(nots: any, atom: any) {
-        let result = atom.parse();
-
-        // const notsArr = nots 
-        //     ? nots.asIteration().children
-        //     :(Array.isArray(nots) ? nots : []);
-
-        const notsArr = [];
-        if (nots) {
-            if (nots.children) {
-                notsArr.push(...nots.children);
-            } else if (Array.isArray(nots)) {
-                notsArr.push(...nots);
-            }
-        }
-
-        for (let i = 0; i < notsArr.length; ++i) {
-            result = { type: "not", predicate: result };
-        }
-
-        return result;
-    },
-
-    /*
-    Atom = Quantifier     -- quantifier
-        | FormulaRef      -- formula_ref
-        | "true"          -- true
-        | "false"         -- false
-        | Comparison      -- comparison
-        | "(" Predicate ")" -- paren
-    */
-    Atom_quantifier(arg0) {
-        return arg0;
-    },
-    Atom_formula_ref(arg0) {
-        return arg0;
-    },
-    Atom_true(t) {
-        return { kind: "true" } as TrueCond;
-    },
-    Atom_false(f) {
-        return { kind: "false" } as FalseCond;
-    },
-    Atom_comparison(cmp) {
-        return cmp;
-    },
-    Atom_paren(left_paren, inner_pred: any, right_paren) {
-        return { kind: "paren", inner: inner_pred } as ParenCond;
-    },
 
     Statement_function_call_statement(func_call, semicolon) {
         return func_call.parse();

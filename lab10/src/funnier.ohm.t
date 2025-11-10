@@ -19,20 +19,6 @@ Funnier <: Funny {
         UsesOpt? 
         Statement
 
-    Predicate := ImplyPred
-    ImplyPred = OrPred ("->" OrPred)?
-    OrPred = AndPred ("or" AndPred)*
-    AndPred = NotPred ("and" NotPred)*
-    NotPred = ("not")* Atom
-
-    // Atom это базовые варианты предиката
-    Atom = Quantifier     -- quantifier
-        | FormulaRef      -- formula_ref
-        | "true"          -- true
-        | "false"         -- false
-        | Comparison      -- comparison
-        | "(" Predicate ")" -- paren
-
     // пишу обновленный инвариант к правилу: While
     InvariantOpt := "invariant" Predicate 
 
