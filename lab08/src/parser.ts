@@ -1,9 +1,9 @@
 import { getExprAst } from '../../lab04';
 import * as ast from './funny';
 import grammar, { FunnyActionDict } from './funny.ohm-bundle';
-import { MatchResult, Semantics } from 'ohm-js';
+import { MatchResult, Node, Semantics } from 'ohm-js';
 
-function checkUniqueNames(items: ast.ParameterDef[] | ast.ParameterDef, kind: string) {
+export function checkUniqueNames(items: ast.ParameterDef[] | ast.ParameterDef, kind: string) {
     // новая строка - преобразую одиночный объект в массив
     const itemArray = Array.isArray(items) ? items : [items];
     const nameMap = new Map<string, number>();
@@ -20,7 +20,7 @@ function checkUniqueNames(items: ast.ParameterDef[] | ast.ParameterDef, kind: st
     });
 }
 
-function collectNamesInNode(node: any, out: Set<string>) {
+export function collectNamesInNode(node: any, out: Set<string>) {
     if (!node) return;
 
     // node - массив AST-узлов, обхожу его
@@ -87,7 +87,7 @@ function collectNamesInNode(node: any, out: Set<string>) {
     }
 }
 
-function checkFunctionCalls(module: ast.Module) {
+export function checkFunctionCalls(module: ast.Module) {
     const functionTable = new Map<string, { params: number, returns: number }>();
     // заполняю таблицу названиями функций, количеством параметров и возвращаемых значений
     for (const func of module.functions) {
@@ -351,16 +351,16 @@ export const getFunnyAst = {
         return arg_parsed;
     },
     // Condition = "not" Condition
-    Condition_not(not, cond: any) {
-        return { kind: "not", condition: cond } as ast.NotCond;
+    NotOp(not, cond: Node) {
+        return { kind: "not", condition: cond.parse() };
     },
     // Condition = Condition "and" Condition
-    Condition_and(cond1: any, and, cond2: any) {
-        return { kind: "and", left: cond1, right: cond2 } as ast.AndCond;
+    AndOp(cond1: Node, and, cond2: Node) {
+        return { kind: "and", left: cond1.parse(), right: cond2.parse() };
     },
     // Condition = Condition "or" Condition
-    Condition_or(cond1: any, or, cond2: any) {
-        return { kind: "or", left: cond1, right: cond2 } as ast.OrCond;
+    OrOp(cond1: Node, or, cond2: Node) {
+        return { kind: "or", left: cond1.parse(), right: cond2.parse() };
     },
     // Condition = Condition "->" Condition
     Condition_implies(cond1: any, implies, cond2: any) {
@@ -441,15 +441,6 @@ export const getFunnyAst = {
     },
     Predicate_comparison(cmp) {
         return cmp;
-    },
-    Predicate_not(not, pred: any) {
-        return { kind: "not", condition: pred } as ast.NotCond;
-    },
-    Predicate_and(pred1: any, and, pred2: any) {
-        return { kind: "and", left: pred1, right: pred2 } as ast.AndCond;
-    },
-    Predicate_or(pred1: any, or, pred2: any) {
-        return { kind: "or", left: pred1, right: pred2 } as ast.OrCond;
     },
     Predicate_paren(left_paren, inner_pred: any, right_paren) {
         return { kind: "paren", inner: inner_pred } as ast.ParenCond;

@@ -8,5 +8,6 @@ rev(a: int[], b: int[], n: int)
     else
     {
         rev(a, b, n-1);
+        b[n] = a[length(a)-n-1];
     }
 }

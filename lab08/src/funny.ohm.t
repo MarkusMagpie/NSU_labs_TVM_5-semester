@@ -53,15 +53,18 @@ Funny <: Arithmetic {
     // обращение к элементу массива
     ArrayAccess = variable "[" Expr "]"
 
-
+    AndOp<C> = C "and" C
+    OrOp<C> = C "or" C
+    NotOp<C> = "not" C
 
     // условия
-    Condition = "true"                          -- true
+    Condition = 
+        "true"                          -- true
         | "false"                               -- false
         | Comparison                            -- comparison
-        | "not" Condition                       -- not
-        | Condition "and" Condition             -- and
-        | Condition "or" Condition              -- or
+        | NotOp<Condition>                       -- not
+        | AndOp<Condition>             -- and
+        | OrOp<Condition>              -- or
         | Condition "->" Condition              -- implies
         | "(" Condition ")"                     -- paren
 
@@ -80,9 +83,9 @@ Funny <: Arithmetic {
         | "true"                                -- true
         | "false"                               -- false
         | Comparison                            -- comparison
-        | "not" Predicate                       -- not
-        | Predicate "and" Predicate             -- and
-        | Predicate "or" Predicate              -- or
+        | NotOp<Predicate>                      -- not
+        | AndOp<Predicate>             -- and
+        | OrOp<Predicate>              -- or
         | "(" Predicate ")"                     -- paren
     // кванторы
     Quantifier = ("forall" | "exists") 

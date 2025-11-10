@@ -117,7 +117,7 @@ export interface ParenCond {
 
 
 // ПРЕДИКАТЫ
-export type Predicate = Quantifier | FormulaRef;
+export type Predicate = Quantifier | FormulaRef | FalseCond | TrueCond | ComparisonCond | NotPred | AndPred | OrPred | ParenPred;
 export interface Quantifier {
     kind: "quantifier";
     quant: "forall" | "exists";
@@ -129,4 +129,22 @@ export interface FormulaRef {
     kind: "formula";
     name: string;
     parameters: ParameterDef[]; // аргументы ссылки на формулу
+}
+export interface NotPred {
+    kind: "not";
+    predicate: Predicate;
+}
+export interface AndPred {
+    kind: "and";
+    left: Predicate;
+    right: Predicate;
+}
+export interface OrPred {
+    kind: "or";
+    left: Predicate;
+    right: Predicate;
+}
+export interface ParenPred {
+    kind: "paren";
+    inner: Predicate;
 }
