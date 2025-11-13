@@ -1,8 +1,92 @@
 import { MatchResult, Semantics } from 'ohm-js';
 import grammar, { FunnierActionDict } from './funnier.ohm-bundle';
 import { AnnotatedModule, Formula, AnnotatedFunctionDef } from './funnier';
-import { checkFunctionCalls, checkUniqueNames, collectNamesInNode, getFunnyAst } from '@tvm/lab08';
+import { checkUniqueNames, collectNamesInNode, getFunnyAst } from '@tvm/lab08';
 import { ParameterDef, Statement, Predicate, Expr, TrueCond, FalseCond, ParenCond } from '../../lab08/src/funny';
+
+function checkFunctionCalls(module: AnnotatedModule) {
+    const functionTable = new Map<string, { params: number, returns: number }>();
+    // заполняю таблицу названиями функций, количеством параметров и возвращаемых значений
+    for (const func of module.functions) {
+        functionTable.set(func.name, { 
+            params: func.parameters.length, 
+            returns: func.returns.length 
+        });
+    }
+
+    function visitNode(node: any, context: { expectedReturns?: number } = {}) {
+        if (!node) return;
+
+        // если узел вызов функции проверяю число параметров по таблице 
+        if (node.type === "funccall") {
+            const funcName = node.name;
+            const argCount = node.args.length;
+            // console.log(`visitNode: funccall ${funcName} has ${argCount} arguments`);
+
+            if (!functionTable.has(funcName)) {
+                throw new Error(`function ${funcName} is not declared`);
+            }
+            
+            const funcInfo = functionTable.get(funcName)!;
+
+            const expectedArgCount = funcInfo.params;
+            if (argCount !== expectedArgCount) {
+                throw new Error();
+            }
+
+            const returnsCount = funcInfo.returns;
+            const expectedReturns = context.expectedReturns;
+            if (returnsCount !== expectedReturns) {
+                throw new Error();
+            }
+
+            if (Array.isArray(node.args)) {
+                for (const arg of node.args) {
+                    // если аргумент - вызов функции он должен вернуть ровно 1 значение
+                    visitNode(arg, { expectedReturns: 1 });
+                }
+            }
+
+            return;
+        } 
+        
+        if (node.type === "block") {
+            // console.log(`visitNode: block with ${node.stmts.length} statements`);
+            if (Array.isArray(node.stmts)) {
+                node.stmts.forEach((stmt: any) => visitNode(stmt));
+            }
+        } 
+        
+        if (node.type === "assign") {
+            // выражения в правой части присваивания
+            // console.log(`visitNode: assign with ${node.exprs.length} expressions`);
+            if (Array.isArray(node.exprs)) {
+                const targetsReturns = node.targets.length;
+                if (Array.isArray(node.exprs)) {
+                    node.exprs.forEach((expr: any) => visitNode(expr, { expectedReturns: targetsReturns }));
+                }
+            }
+        }
+    }
+
+    for (const func of module.functions) {
+        console.log(`Checking function: ${func.name}`);
+        
+        visitNode(func.body);
+        
+        // НОВОЕ: проверка предусловия
+        if (func.precondition) {
+            console.log(`Checking precondition of ${func.name}`);
+            visitNode(func.precondition);
+        }
+        
+        // НОВОЕ: проверка постусловия  
+        if (func.postcondition) {
+            console.log(`Checking postcondition of ${func.name}`);
+            visitNode(func.postcondition);
+        }
+    }
+}
 
 const getFunnierAst = {
     ...getFunnyAst,

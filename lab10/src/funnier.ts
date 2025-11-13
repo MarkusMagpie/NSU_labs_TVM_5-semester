@@ -15,5 +15,6 @@ export interface Formula {
 }
 
 export interface AnnotatedFunctionDef extends FunctionDef {
-    postcondition: Predicate | null;
+    precondition: Predicate[] | null;
+    postcondition: Predicate[] | null;
 }

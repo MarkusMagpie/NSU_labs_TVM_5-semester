@@ -1,8 +1,8 @@
 rev(a: int[], b: int[], n: int)
   requires n>=0 and n < length(a) and length(b) == length(a)
-  uses t: int
   returns void
   ensures forall(k: int | (k>=0 and k<length(a)) -> (b[k] == a[length(a)-k]))
+  uses t: int
 {
     if(n == 1)        
         b[0] = a[0];
