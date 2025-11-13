@@ -20,7 +20,7 @@ function checkFunctionCalls(module: AnnotatedModule) {
         // если узел вызов функции проверяю число параметров по таблице 
         if (node.type === "funccall") {
             const funcName = node.name;
-            const argCount = node.args.length;
+            const argCount = Array.isArray(node.args) ? node.args.length : 0;
             // console.log(`visitNode: funccall ${funcName} has ${argCount} arguments`);
 
             if (!functionTable.has(funcName)) {
@@ -35,7 +35,8 @@ function checkFunctionCalls(module: AnnotatedModule) {
             }
 
             const returnsCount = funcInfo.returns;
-            const expectedReturns = context.expectedReturns;
+            // const expectedReturns = context.expectedReturns;
+            const expectedReturns = (typeof context.expectedReturns === "number") ? context.expectedReturns : 0;
             if (returnsCount !== expectedReturns) {
                 throw new Error();
             }
@@ -46,7 +47,6 @@ function checkFunctionCalls(module: AnnotatedModule) {
                     visitNode(arg, { expectedReturns: 1 });
                 }
             }
-
             return;
         } 
         
@@ -55,6 +55,7 @@ function checkFunctionCalls(module: AnnotatedModule) {
             if (Array.isArray(node.stmts)) {
                 node.stmts.forEach((stmt: any) => visitNode(stmt));
             }
+            return;
         } 
         
         if (node.type === "assign") {
@@ -66,6 +67,64 @@ function checkFunctionCalls(module: AnnotatedModule) {
                     node.exprs.forEach((expr: any) => visitNode(expr, { expectedReturns: targetsReturns }));
                 }
             }
+            return;
+        }
+
+        if (node.type === "if") {
+            visitNode(node.condition);
+            visitNode(node.then);
+            visitNode(node.else);
+            return;
+        }
+
+        if (node.type === "while") {
+            visitNode(node.condition);
+            visitNode(node.body);
+            if (node.invariant) {
+                visitNode(node.invariant);
+            }
+            return;
+        }
+
+        if (node.type === "arraccess") {
+            visitNode(node.index, { expectedReturns: 1 });
+            return;
+        }
+
+        if (node.kind) {
+            switch (node.kind) {
+                case "comparison":
+                    visitNode(node.left, { expectedReturns: 1 });
+                    visitNode(node.right, { expectedReturns: 1 });
+                    break;
+                case "and":
+                case "or":
+                    visitNode(node.left);
+                    visitNode(node.right);
+                    break;
+                case "not":
+                    visitNode(node.condition || node.predicate);
+                    break;
+                case "paren":
+                    visitNode(node.inner);
+                    break;
+                case "quantifier":
+                    visitNode(node.body);
+                    break;
+                case "formula":
+                    // для FormulaRef - аргументы
+                    if (Array.isArray(node.parameters)) {
+                        node.parameters.forEach((param: any) => visitNode(param, { expectedReturns: 1 }));
+                    }
+                    break;
+                // true/false не требуют проверки
+                case "true":
+                case "false":
+                    break;
+                default:
+                    console.warn("что за node kind:", node.kind);
+            }
+            return;
         }
     }
 
@@ -207,6 +266,9 @@ const getFunnierAst = {
 
         // Postopt = ("ensures" Predicate ("and" Predicate)*)?
         const postopt_ast = postopt.ast ? postopt.parse() : null;
+        // const postopt_ast = preopt.children.length > 0 
+        // ? preopt.children[0].children[1].children.map((x: any) => x.parse())
+        // : [];
 
         // UsesOpt = ("uses" ParamList)? 
         const arr_locals_array = usesopt.children.length > 0
