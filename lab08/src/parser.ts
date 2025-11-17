@@ -87,7 +87,7 @@ export function collectNamesInNode(node: any, out: Set<string>) {
     }
 }
 
-export function checkFunctionCalls(module: ast.Module) {
+function checkFunctionCalls(module: ast.Module) {
     const functionTable = new Map<string, { params: number, returns: number }>();
     // заполняю таблицу названиями функций, количеством параметров и возвращаемых значений
     for (const func of module.functions) {

@@ -7,7 +7,6 @@ rev(a: int[], b: int[], n: int)
         b[0] = a[0];
     else
     {
-        rev(a, b, n-1);
-        b[n] = a[length(a)-n-1];
+        rev(a, )
     }
 }
