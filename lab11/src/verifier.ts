@@ -113,7 +113,7 @@ function buildFunctionVerificationConditions(
             environment.set(param.name, z3.Int.const(param.name));
         } else if (param.type.toString() === "int[]") {
             // todo
-            throw new Error('int[] не сделал');
+            throw new Error("int[] не сделал");
         }
     }
 
@@ -239,10 +239,10 @@ function convertExprToZ3(
             const left = convertExprToZ3(expr.left, env, z3);
             const right = convertExprToZ3(expr.right, env, z3);
             switch (expr.operation) {
-                case '+': return left.add(right);
-                case '-': return left.sub(right);
-                case '*': return left.mul(right);
-                case '/': return left.div(right);
+                case "+": return left.add(right);
+                case "-": return left.sub(right);
+                case "*": return left.mul(right);
+                case "/": return left.div(right);
                 default: throw new Error(`неизвестный бинарный опер: ${expr.operation}`);
             }
         case "funccall":
@@ -284,7 +284,7 @@ function convertQuantifierToZ3(
         varExpr = z3.Int.const(varName);
     } else {
         // todo
-        throw new Error('в кванторах числовых массивов пока нема');
+        throw new Error("в кванторах числовых массивов пока нема");
     }
 
     // + новое окружение С добавленной переменной 
@@ -343,7 +343,7 @@ function computeWPAssignment(
     //         name: string;
     //     }
     //     */
-    //     if (target.type === 'lvar') {
+    //     if (target.type === "lvar") {
     //         const varName = target.name;
             
     //         // подстановка переменной на уровне AST перед конвертацией в Z3
@@ -457,18 +457,18 @@ function computeWPWhile(
     z3: Context
 ): Bool {
     if (!whileStmt.invariant) {
-        throw new Error('while цикл без инварианта');
+        throw new Error("while цикл без инварианта");
     }
     
-    const invariant = convertPredicateToZ3(whileStmt.invariant, env, z3);
     const condition = convertConditionToZ3(whileStmt.condition, env, z3);
+    const invariant = convertPredicateToZ3(whileStmt.invariant, env, z3);
     
-    // WP для цикла: I ∧ (I ∧ C ⇒ WP(S, I)) ∧ (I ∧ ¬C ⇒ Q)
+    // WP для цикла: I & (I & C -> WP(body, I)) & (I & not(C) -> postcondition)
     const bodyWP = computeWP(whileStmt.body, invariant, env, z3);
     
     return z3.And(
         invariant, // I выполняется перед циклом
         z3.Implies(z3.And(invariant, condition), bodyWP), // I сохраняется в теле
-        z3.Implies(z3.And(invariant, z3.Not(condition)), postcondition) // I ⇒ Q при выходе
+        z3.Implies(z3.And(invariant, z3.Not(condition)), postcondition) // I -> postcondition при выходе из цикла
     );
 }
