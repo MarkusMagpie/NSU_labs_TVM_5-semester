@@ -247,10 +247,10 @@ function convertExprToZ3(
             }
         case "funccall":
             // todo
-            throw new Error();
+            throw new Error("todo funccall");
         case "arraccess":
             // todo
-            throw new Error();
+            throw new Error("todo arraccess");
         default:
             throw new Error(`неизвестный expression type: ${(expr as any).type}`);
     }
@@ -465,7 +465,6 @@ function computeWPWhile(
     
     // WP для цикла: I & (I & C -> WP(body, I)) & (I & not(C) -> postcondition)
     const bodyWP = computeWP(whileStmt.body, invariant, env, z3);
-    
     return z3.And(
         invariant, // I выполняется перед циклом
         z3.Implies(z3.And(invariant, condition), bodyWP), // I сохраняется в теле

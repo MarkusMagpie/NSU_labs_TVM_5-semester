@@ -1,6 +1,6 @@
 import { writeFileSync } from "fs";
 import { Op, I32, Void, c, BufferedEmitter, LocalEntry, Uint8, Int, ExportEntry} from "../../wasm";
-import { Module, Statement, Expr, LValue, Condition } from "../../lab08";
+import { Module, Statement, Expr, LValue, ArrLValue, Condition } from "../../lab08";
 
 const { i32, 
     varuint32,
@@ -116,7 +116,18 @@ function compileExpr(expr: Expr, locals: string[], functionIndexMap: Map<string,
             }
             return c.call(i32, c.varuint32(funcIndex), args);
         case "arraccess":
-            throw new Error("Array access TODO");
+            // throw new Error("Array access TODO");
+
+            // временный LValue для доступа к массиву
+            const tempLValue: ArrLValue = {
+                type: "larr",
+                name: expr.name,
+                index: expr.index
+            };
+            
+            // получения значения элемента массива
+            const arrayAccess = compileLValue(tempLValue, locals, functionIndexMap);
+            return arrayAccess.get();
         default:
             console.log(expr);
             throw new Error(`unknown expr type: ${(expr as any).type}`);
@@ -125,7 +136,7 @@ function compileExpr(expr: Expr, locals: string[], functionIndexMap: Map<string,
 
 // export type LValue = VarLValue | ArrLValue;
 // возвращается объект с двумя методами - для записи значения и его чтения
-function compileLValue(lvalue: LValue, locals: string[]): 
+function compileLValue(lvalue: LValue, locals: string[], functionIndexMap: Map<string, number>): 
     {   set: (value: Op<I32>) => Op<Void>, 
         get: () => Op<I32> } {
     switch (lvalue.type) {
@@ -145,7 +156,7 @@ function compileLValue(lvalue: LValue, locals: string[]):
             };
         case "larr":
             const arrayIndex = locals.indexOf(lvalue.name);
-            const indexExpr = compileExpr(lvalue.index, locals, new Map());
+            const indexExpr = compileExpr(lvalue.index, locals, functionIndexMap);
 
             // базовый адрес массива
             const baseAddress = c.get_local(i32, arrayIndex);
@@ -241,7 +252,7 @@ function compileStatement(stmt: Statement, locals: string[], functionIndexMap: M
             // присвоение значения exprValues целевым переменным targets
             for (let i = stmt.targets.length - 1; i >= 0; i--) {
                 const target = stmt.targets[i];
-                const lvalue = compileLValue(target, locals);
+                const lvalue = compileLValue(target, locals, functionIndexMap);
                 ops.push(lvalue.set(exprValues[i]));
             }
             break;
