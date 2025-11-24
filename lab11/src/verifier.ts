@@ -103,8 +103,8 @@ async function proveTheorem(
 function buildFunctionVerificationConditions(
     func: AnnotatedFunctionDef,
     module: AnnotatedModule,
-    z3: Context
-): Bool {
+//    z3: Context
+): Predicate {
     const environment = new Map<string, Arith>();
 
     // вложение параметров
@@ -131,13 +131,13 @@ function buildFunctionVerificationConditions(
         }
     }
 
-    // предусловие -> Z3 
-    const precondition = convertPredicatesToZ3(func.precondition, environment, z3);
+    // // предусловие -> Z3 
+    // const precondition = convertPredicatesToZ3(func.precondition, environment, z3);
 
-    const postcondition = convertPredicatesToZ3(func.postcondition, environment, z3);
+    // const postcondition = convertPredicatesToZ3(func.postcondition, environment, z3);
 
     // weakest precondition для тела функции
-    const wpBody = computeWP(func.body, postcondition, environment, z3);
+    const wpBody = computeWP(func.body, func.postcondition);
 
     // условие верификации: pre -> wp
     return z3.Implies(precondition, wpBody);
@@ -333,34 +333,38 @@ function computeWPAssignment(
     env: Map<string, Arith>,
     z3: Context
 ): Bool {
-    // if (assign.targets.length === 1 && assign.exprs.length === 1) {
-    //     const target = assign.targets[0];
-    //     const expr = assign.exprs[0];
+    if (assign.targets.length === 1 && assign.exprs.length === 1) {
+        const target = assign.targets[0];
+        const expr = assign.exprs[0];
         
-    //     /*
-    //     export interface VarLValue {
-    //         type: "lvar";
-    //         name: string;
-    //     }
-    //     */
-    //     if (target.type === "lvar") {
-    //         const varName = target.name;
+        /*
+        export interface VarLValue {
+            type: "lvar";
+            name: string;
+        }
+        */
+        if (target.type === "lvar") {
+            const varName = target.name;
             
-    //         // подстановка переменной на уровне AST перед конвертацией в Z3
-    //         return substituteInPredicate(postcondition, varName, expr);
-    //     }
+            // подстановка переменной на уровне AST перед конвертацией в Z3
+            return substituteInPredicate(postcondition, varName, expr);
+        }
         
-    //     /*
-    //     export interface ArrLValue {
-    //         type: "larr";
-    //         name: string;
-    //         index: Expr;
-    //     }
-    //     */
-    //     // todo
-    // }
+        /*
+        export interface ArrLValue {
+            type: "larr";
+            name: string;
+            index: Expr;
+        }
+        */
+        // todo
+    }
     
     throw new Error(`неизвестный assignment: ${assign}`);
+}
+
+function substituteInPredicate(postcondition: Predicate, varName: string, expr: Expr): Predicate {
+    throw new Error("Function not implemented.");
 }
 
 /*

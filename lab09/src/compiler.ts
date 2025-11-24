@@ -94,6 +94,7 @@ function compileExpr(expr: Expr, locals: string[], functionIndexMap: Map<string,
             return i32.const(expr.value);
         case "var":
             const index = locals.indexOf(expr.name);
+            if (index < 0) throw new Error(`unknown local variable: ${expr.name}`);
             return c.get_local(i32, index);
         case "neg":
             return i32.mul(i32.const(-1), compileExpr(expr.arg, locals, functionIndexMap));
@@ -116,16 +117,25 @@ function compileExpr(expr: Expr, locals: string[], functionIndexMap: Map<string,
             }
             return c.call(i32, c.varuint32(funcIndex), args);
         case "arraccess":
-            // throw new Error("Array access TODO");
+            /*
+            export interface ArrLValue {
+                type: "larr";
+                name: string;
+                index: Expr;
+            }
+            */
+            // не AST объекты не выводить
+            const ae = expr as any;
+            if (typeof ae.name !== "string" || !ae.index) {
+                throw new Error(`invalid arraccess node: ${JSON.stringify(Object.keys(ae))}`);
+            }
 
-            // временный LValue для доступа к массиву
             const tempLValue: ArrLValue = {
                 type: "larr",
-                name: expr.name,
-                index: expr.index
+                name: ae.name,
+                index: ae.index
             };
-            
-            // получения значения элемента массива
+            const arrayIndex = compileExpr(tempLValue.index, locals, functionIndexMap);
             const arrayAccess = compileLValue(tempLValue, locals, functionIndexMap);
             return arrayAccess.get();
         default:
@@ -156,6 +166,10 @@ function compileLValue(lvalue: LValue, locals: string[], functionIndexMap: Map<s
             };
         case "larr":
             const arrayIndex = locals.indexOf(lvalue.name);
+            if (arrayIndex === -1) {
+                throw new Error(`variable '${lvalue.name}' not found in locals`);
+            }
+            console.log(`array '${lvalue.name}' found at index ${arrayIndex}`);
             const indexExpr = compileExpr(lvalue.index, locals, functionIndexMap);
 
             // базовый адрес массива
@@ -259,7 +273,7 @@ function compileStatement(stmt: Statement, locals: string[], functionIndexMap: M
         // Conditional = "if" "(" Condition ")" Statement ("else" Statement)?
         case "if":
             const condition2 = compileCondition(stmt.condition, locals, functionIndexMap);
-            console.log(condition2);
+            // console.log(condition2);
             const thenOps = compileStatement(stmt.then, locals, functionIndexMap);
             const elseOps = stmt.else ? compileStatement(stmt.else, locals, functionIndexMap) : [];
             const ifOp = c.void_block([c.if_(c.void, condition2, thenOps, elseOps)]);
