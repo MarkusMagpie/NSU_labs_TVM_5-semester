@@ -50,14 +50,22 @@ let z3: Context;
 
 export async function verifyModule(module: AnnotatedModule): Promise<VerificationResult[]>
 {
-    z3 = await initZ3();
     const results: VerificationResult[] = [];
-    // throw "Not implemented"
-
     for (const func of module.functions) {
         try {
-            const theorem = buildFunctionVerificationConditions(func, module, z3);
-            const result = await proveTheorem(theorem, z3);
+            // 1 вариант
+            // const theorem = buildFunctionVerificationConditions(func, module, z3);
+            // const result = await proveTheorem(theorem, z3);
+
+            // 2 вариант
+            // условие верификации как Predicate
+            const verificationCondition = buildFunctionVerificationConditions(func, module);
+            
+            // конвертация в Z3 только в конце
+            z3 = await initZ3();
+            const environment = buildEnvironment(func, z3);
+            const z3Condition = convertPredicateToZ3(verificationCondition, environment, z3);
+            const result = await proveTheorem(z3Condition, z3);
             results.push(
                 {
                     function: func.name,
@@ -100,16 +108,12 @@ async function proveTheorem(
     }
 }
 
-function buildFunctionVerificationConditions(
-    func: AnnotatedFunctionDef,
-    module: AnnotatedModule,
-//    z3: Context
-): Predicate {
+function buildEnvironment(func: AnnotatedFunctionDef, z3: Context): Map<string, Arith> {
     const environment = new Map<string, Arith>();
 
     // вложение параметров
     for (const param of func.parameters) {
-        if (param.type === "int" as string) {
+        if (param.varType === "int") {
             environment.set(param.name, z3.Int.const(param.name));
         } else if (param.type.toString() === "int[]") {
             // todo
@@ -119,54 +123,393 @@ function buildFunctionVerificationConditions(
 
     // добавление return values
     for (const ret of func.returns) {
-        if (ret.type.toString() === "int") {
+        if (ret.varType === "int") {
             environment.set(ret.name, z3.Int.const(ret.name));
         }
     }
 
     // добавление локальных переменных
     for (const local of func.locals) {
-        if (local.type.toString() === "int") {
+        if (local.varType === "int") {
             environment.set(local.name, z3.Int.const(local.name));
         }
     }
 
+    return environment;
+}
+
+/*
+export interface ImpliesCond {
+    kind: "implies";
+    left: Condition;
+    right: Condition;
+}
+*/
+function buildFunctionVerificationConditions(
+    func: AnnotatedFunctionDef,
+    module: AnnotatedModule,
+//    z3: Context
+): Predicate {
+    // 1 вариант
     // // предусловие -> Z3 
     // const precondition = convertPredicatesToZ3(func.precondition, environment, z3);
 
     // const postcondition = convertPredicatesToZ3(func.postcondition, environment, z3);
 
+    // // weakest precondition для тела функции
+    // const wpBody = computeWP(func.body, func.postcondition);
+
+    // // условие верификации: pre -> wp
+    // return z3.Implies(precondition, wpBody);
+
+    // 2 вариант
+    const precondition = combinePredicates(func.precondition);
+    const postcondition = combinePredicates(func.postcondition);
+
     // weakest precondition для тела функции
-    const wpBody = computeWP(func.body, func.postcondition);
+    const wpBody = computeWP(func.body, postcondition);
 
     // условие верификации: pre -> wp
-    return z3.Implies(precondition, wpBody);
+    return {
+        kind: "implies",
+        left: precondition,
+        right: wpBody
+    };
 }
 
-// объединие массива предикатов в Z3
-function convertPredicatesToZ3(
-    predicates: Predicate[] | null,
-    env: Map<string, Arith>,
-    z3: Context
-): Bool {
-    // пустое условие
+function combinePredicates(predicates: Predicate[] | null): Predicate {
     if (!predicates || predicates.length === 0) {
-        return z3.Bool.val(true);
+        return { kind: "true" };
     }
-    
-    let result = convertPredicateToZ3(predicates[0], env, z3);
-
     if (predicates.length === 1) {
-        return result;
-    }
-
-    for (let i = 1; i < predicates.length; i++) {
-        result = z3.And(result, convertPredicateToZ3(predicates[i], env, z3));
+        return predicates[0];
     }
     
+    // объед предикаты с помощью конъюнкции (and)
+    let result: Predicate = predicates[0];
+    for (let i = 1; i < predicates.length; i++) {
+        result = {
+            kind: "and",
+            left: result,
+            right: predicates[i]
+        };
+    }
     return result;
 }
 
+function computeWP(
+    statement: Statement, 
+    postcondition: Predicate, 
+    // env: Map<string, Arith>, 
+    // z3: Context
+): Predicate {
+    switch (statement.type) {
+        case "assign": 
+            return computeWPAssignment(statement, postcondition);
+        case "block":
+            return computeWPBlock(statement, postcondition);
+        case "if":
+            return computeWPIf(statement, postcondition);
+        case "while":
+            return computeWPWhile(statement, postcondition);
+        default:
+            throw new Error(`неизвестный оператор: ${(statement as any).type}`);
+    }
+}
+
+/*
+export interface AssignStmt {
+    type: "assign";
+    targets: LValue[];
+    exprs: Expr[];
+}
+*/
+function computeWPAssignment(
+    assign: AssignStmt,
+    postcondition: Predicate,
+    // env: Map<string, Arith>,
+    // z3: Context
+): Predicate {
+    if (assign.targets.length === 1 && assign.exprs.length === 1) {
+        const target = assign.targets[0];
+        const expr = assign.exprs[0];
+        
+        /*
+        export interface VarLValue {
+            type: "lvar";
+            name: string;
+        }
+        */
+        if (target.type === "lvar") {
+            const varName = target.name;
+            
+            // подстановка переменной на уровне AST перед конвертацией в Z3
+            return substituteInPredicate(postcondition, varName, expr);
+        }
+        
+        /*
+        export interface ArrLValue {
+            type: "larr";
+            name: string;
+            index: Expr;
+        }
+        */
+        if (target.type === "larr") {
+            throw new Error("присваивание элементам массива не реализовано");
+        }
+    }
+    
+    throw new Error(`неизвестный assignment: ${assign}`);
+}
+
+function substituteInPredicate(predicate: Predicate, varName: string, expr: Expr): Predicate {
+    switch (predicate.kind) {
+        case "true":
+            return predicate;
+        case "false":
+            return predicate;
+        case "comparison":
+            return {
+                ...predicate,
+                left: substituteInExpr(predicate.left, varName, expr),
+                right: substituteInExpr(predicate.right, varName, expr)
+            };
+        case "and":
+            return {
+                ...predicate,
+                left: substituteInPredicate(predicate.left, varName, expr),
+                right: substituteInPredicate(predicate.right, varName, expr)
+            };
+        case "or":
+            return {
+                ...predicate,
+                left: substituteInPredicate(predicate.left, varName, expr),
+                right: substituteInPredicate(predicate.right, varName, expr)
+            };  
+        case "not":
+            return {
+                ...predicate,
+                predicate: substituteInPredicate(predicate.predicate, varName, expr)
+            };
+        case "paren":
+            return {
+                ...predicate,
+                inner: substituteInPredicate(predicate.inner, varName, expr)
+            };
+        case "quantifier":
+            // не подставляю в связанные переменные
+            if (predicate.varName === varName) {
+                return predicate;
+            }
+            return {
+                ...predicate,
+                body: substituteInPredicate(predicate.body, varName, expr)
+            };
+        case "formula":
+            throw new Error("kys");
+        default:
+            throw new Error(`неизвестный тип предиката: ${(predicate as any).kind}`);
+    }
+}
+
+function substituteInExpr(expr: Expr, varName: string, substitution: Expr): Expr {
+    switch (expr.type) {
+        case "num":
+            return expr;
+        case "var":
+            if (expr.name === varName) return substitution;
+            return expr;
+        case "neg":
+            return {
+                type: "neg",
+                arg: substituteInExpr(expr.arg, varName, substitution)
+            } as Expr;
+        case "bin":
+            return {
+                type: "bin",
+                operation: expr.operation,
+                left: substituteInExpr(expr.left, varName, substitution),
+                right: substituteInExpr(expr.right, varName, substitution)
+            } as Expr;
+        case "funccall":
+            return {
+                type: "funccall",
+                name: expr.name,
+                args: expr.args.map(arg => substituteInExpr(arg, varName, substitution))
+            } as Expr;
+        case "arraccess":
+            return {
+                type: "arraccess", 
+                name: expr.name,
+                index: substituteInExpr(expr.index, varName, substitution)
+            } as Expr;
+        default:
+            throw new Error(`неизвестный тип выражения: ${(expr as any).type}`);
+    }
+}
+
+/*
+export interface BlockStmt {
+    type: "block";
+    stmts: Statement[];
+}
+*/
+function computeWPBlock(
+    block: BlockStmt,
+    postcondition: Predicate,
+    // env: Map<string, Arith>,
+    // z3: Context
+): Predicate {
+    // обработка блоков в обратном порядке
+    let currentWP = postcondition;
+    for (let i = block.stmts.length - 1; i >= 0; --i) {
+        // currentWP = computeWP(block.stmts[i], currentWP, env, z3);
+        currentWP = computeWP(block.stmts[i], currentWP);
+    }
+
+    return currentWP;
+}
+
+/*
+export interface ConditionalStmt {
+    type: "if";
+    condition: Condition;
+    then: Statement;
+    else: Statement | null;
+}
+*/
+function computeWPIf(
+    ifStmt: ConditionalStmt,
+    postcondition: Predicate,
+    // env: Map<string, Arith>,
+    // z3: Context
+): Predicate {
+    // const condition = convertConditionToZ3(ifStmt.condition, env, z3);
+    // const thenWP = computeWP(ifStmt.then, postcondition, env, z3);
+    // const elseWP = ifStmt.else ? computeWP(ifStmt.else, postcondition, env, z3) : postcondition;
+
+    const condition = convertConditionToPredicate(ifStmt.condition);
+    const thenWP = computeWP(ifStmt.then, postcondition);
+    const elseWP = ifStmt.else ? computeWP(ifStmt.else, postcondition) : postcondition;
+    
+    // return z3.And(
+    //     z3.Implies(condition, thenWP),
+    //     z3.Implies(z3.Not(condition), elseWP)
+    // );
+
+    // WP = (condition & thenWP) || (not(condition) & elseWP)
+    return {
+        kind: "or",
+        left: {
+            kind: "and",
+            left: condition,
+            right: thenWP
+        },
+        right: {
+            kind: "and", 
+            left: { kind: "not", predicate: condition },
+            right: elseWP
+        }
+    };
+}
+
+function convertConditionToPredicate(condition: Condition): Predicate {
+    switch (condition.kind) {
+        case "true": return condition;
+        case "false": return condition;
+        case "comparison": 
+            // мб проверка на совместимость типов
+            return condition;
+        case "not":
+            return {
+                kind: "not",
+                predicate: convertConditionToPredicate(condition.condition)
+            };
+        case "and":
+            return {
+                kind: "and",
+                left: convertConditionToPredicate(condition.left),
+                right: convertConditionToPredicate(condition.right)
+            };
+        case "or":
+            return {
+                kind: "or",
+                left: convertConditionToPredicate(condition.left),
+                right: convertConditionToPredicate(condition.right)
+            };
+        case "implies":
+            return {
+                kind: "or",
+                left: { 
+                    kind: "not", 
+                    predicate: convertConditionToPredicate(condition.left) 
+                },
+                right: convertConditionToPredicate(condition.right)
+            };
+        case "paren":
+            return {
+                kind: "paren",
+                inner: convertConditionToPredicate(condition.inner)
+            };
+        default:
+            throw new Error(`неизвестный тип условия: ${(condition as any).kind}`);
+    }
+}
+
+/*
+export interface WhileStmt {
+    type: "while";
+    condition: Condition;
+    invariant: Predicate | null;
+    body: Statement;
+}
+*/
+function computeWPWhile(whileStmt: WhileStmt, postcondition: Predicate): Predicate {
+    if (!whileStmt.invariant) {
+        throw new Error("while цикл без инварианта");
+    }
+    
+    const condition = convertConditionToPredicate(whileStmt.condition);
+    const invariant = whileStmt.invariant;
+    const bodyWP = computeWP(whileStmt.body, invariant);
+
+    // WP для цикла: I & (I & C -> WP(body, I)) & (I & not(C) -> postcondition)
+    return {
+        kind: "and",
+        left: invariant,
+        right: {
+            kind: "and",
+            left: {
+                // I сохраняется в теле
+                kind: "or",
+                left: { 
+                    kind: "not", 
+                    predicate: { 
+                        kind: "and", 
+                        left: invariant, 
+                        right: condition 
+                    } 
+                },
+                right: bodyWP
+            },
+            right: {
+                // I -> postcondition при выходе из цикла
+                kind: "or", 
+                left: { 
+                    kind: "not", 
+                    predicate: { 
+                        kind: "and", 
+                        left: invariant, 
+                        right: { kind: "not", predicate: condition } 
+                    } 
+                },
+                right: postcondition
+            }
+        }
+    };
+}
+
+// --- конвертация в Z3 ---
 function convertPredicateToZ3(
     predicate: Predicate,
     env: Map<string, Arith>,
@@ -193,8 +536,11 @@ function convertPredicateToZ3(
             return convertPredicateToZ3((predicate as ParenPred).inner, env, z3);
         case "quantifier":
             return convertQuantifierToZ3(predicate as Quantifier, env, z3);
-        // case "formula":
-        //     return convertFormulaRefToZ3(predicate as FormulaRef, env, z3);
+        case "implies":
+            return z3.Implies(
+                convertPredicateToZ3((predicate as any).left, env, z3),
+                convertPredicateToZ3((predicate as any).right, env, z3)
+            );
         default:
             throw new Error(`что за предикат таккой: ${(predicate as any).kind}`);
     }
@@ -215,7 +561,6 @@ function convertComparisonToZ3(
         case "<": return left.lt(right);
         case ">=": return left.ge(right);
         case "<=": return left.le(right);
-        
         default: throw new Error(`unnown comparison operator: ${comparison.op}`);
     }
 }
@@ -298,180 +643,4 @@ function convertQuantifierToZ3(
     } else {
         return z3.Exists([varExpr], body);
     }
-}
-
-function computeWP(
-    statement: Statement, 
-    postcondition: Bool, 
-    env: Map<string, Arith>, 
-    z3: Context
-): Bool {
-    switch (statement.type) {
-        case "assign": 
-            return computeWPAssignment(statement, postcondition, env, z3);
-        case "block":
-            return computeWPBlock(statement, postcondition, env, z3);
-        case "if":
-            return computeWPIf(statement, postcondition, env, z3);
-        case "while":
-            return computeWPWhile(statement, postcondition, env, z3);
-        default:
-            throw new Error(`неизвестный оператор: ${(statement as any).type}`);
-    }
-}
-
-/*
-export interface AssignStmt {
-    type: "assign";
-    targets: LValue[];
-    exprs: Expr[];
-}
-*/
-function computeWPAssignment(
-    assign: AssignStmt,
-    postcondition: Bool,
-    env: Map<string, Arith>,
-    z3: Context
-): Bool {
-    if (assign.targets.length === 1 && assign.exprs.length === 1) {
-        const target = assign.targets[0];
-        const expr = assign.exprs[0];
-        
-        /*
-        export interface VarLValue {
-            type: "lvar";
-            name: string;
-        }
-        */
-        if (target.type === "lvar") {
-            const varName = target.name;
-            
-            // подстановка переменной на уровне AST перед конвертацией в Z3
-            return substituteInPredicate(postcondition, varName, expr);
-        }
-        
-        /*
-        export interface ArrLValue {
-            type: "larr";
-            name: string;
-            index: Expr;
-        }
-        */
-        // todo
-    }
-    
-    throw new Error(`неизвестный assignment: ${assign}`);
-}
-
-function substituteInPredicate(postcondition: Predicate, varName: string, expr: Expr): Predicate {
-    throw new Error("Function not implemented.");
-}
-
-/*
-export interface BlockStmt {
-    type: "block";
-    stmts: Statement[];
-}
-*/
-function computeWPBlock(
-    block: BlockStmt,
-    postcondition: Bool,
-    env: Map<string, Arith>,
-    z3: Context
-): Bool {
-    // обработка блоков в обратном порядке
-    let currentWP = postcondition;
-    for (let i = block.stmts.length - 1; i >= 0; --i) {
-        currentWP = computeWP(block.stmts[i], currentWP, env, z3);
-    }
-
-    return currentWP;
-}
-
-/*
-export interface ConditionalStmt {
-    type: "if";
-    condition: Condition;
-    then: Statement;
-    else: Statement | null;
-}
-*/
-function computeWPIf(
-    ifStmt: ConditionalStmt,
-    postcondition: Bool,
-    env: Map<string, Arith>,
-    z3: Context
-): Bool {
-    const condition = convertConditionToZ3(ifStmt.condition, env, z3);
-    const thenWP = computeWP(ifStmt.then, postcondition, env, z3);
-    const elseWP = ifStmt.else ? computeWP(ifStmt.else, postcondition, env, z3) : postcondition;
-    
-    return z3.And(
-        z3.Implies(condition, thenWP),
-        z3.Implies(z3.Not(condition), elseWP)
-    );
-}
-
-function convertConditionToZ3(
-    condition: Condition,
-    env: Map<string, Arith>,
-    z3: Context
-): Bool {
-    switch (condition.kind) {
-        case "true": return z3.Bool.val(true);
-        case "false": return z3.Bool.val(false);
-        case "comparison":
-            return convertComparisonToZ3(condition, env, z3);
-        case "not":
-            return z3.Not(convertConditionToZ3((condition as NotCond).condition, env, z3));
-        case "and":
-            return z3.And(
-                convertConditionToZ3((condition as AndCond).left, env, z3),
-                convertConditionToZ3((condition as AndCond).right, env, z3)
-            );
-        case "or":
-            return z3.Or(
-                convertConditionToZ3((condition as OrCond).left, env, z3),
-                convertConditionToZ3((condition as OrCond).right, env, z3)
-            );
-        case "implies":
-            return z3.Implies(
-                convertConditionToZ3((condition as ImpliesCond).left, env, z3),
-                convertConditionToZ3((condition as ImpliesCond).right, env, z3)
-            );
-        case "paren":
-            return convertConditionToZ3((condition as ParenCond).inner, env, z3);
-        default:
-            throw new Error(`такого condition еще нема: ${(condition as any).kind}`);
-    }
-}
-
-/*
-export interface WhileStmt {
-    type: "while";
-    condition: Condition;
-    invariant: Predicate | null;
-    body: Statement;
-}
-*/
-function computeWPWhile(
-    whileStmt: WhileStmt,
-    postcondition: Bool,
-    env: Map<string, Arith>,
-    z3: Context
-): Bool {
-    if (!whileStmt.invariant) {
-        throw new Error("while цикл без инварианта");
-    }
-    
-    const condition = convertConditionToZ3(whileStmt.condition, env, z3);
-    const invariant = convertPredicateToZ3(whileStmt.invariant, env, z3);
-    
-    // WP для цикла: I & (I & C -> WP(body, I)) & (I & not(C) -> postcondition)
-    const bodyWP = computeWP(whileStmt.body, invariant, env, z3);
-    return z3.And(
-        invariant, // I выполняется перед циклом
-        z3.Implies(z3.And(invariant, condition), bodyWP), // I сохраняется в теле
-        z3.Implies(z3.And(invariant, z3.Not(condition)), postcondition) // I -> postcondition при выходе из цикла
-    );
 }
