@@ -174,7 +174,7 @@ function buildFunctionVerificationConditions(
         kind: "implies",
         left: precondition,
         right: wpBody
-    };
+    } as Predicate;
 }
 
 function combinePredicates(predicates: Predicate[] | null): Predicate {
@@ -205,13 +205,13 @@ function computeWP(
 ): Predicate {
     switch (statement.type) {
         case "assign": 
-            return computeWPAssignment(statement, postcondition);
+            return computeWPAssignment(statement as AssignStmt, postcondition);
         case "block":
-            return computeWPBlock(statement, postcondition);
+            return computeWPBlock(statement as BlockStmt, postcondition);
         case "if":
-            return computeWPIf(statement, postcondition);
+            return computeWPIf(statement as ConditionalStmt, postcondition);
         case "while":
-            return computeWPWhile(statement, postcondition);
+            return computeWPWhile(statement as WhileStmt, postcondition);
         default:
             throw new Error(`неизвестный оператор: ${(statement as any).type}`);
     }
@@ -234,17 +234,9 @@ function computeWPAssignment(
         const target = assign.targets[0];
         const expr = assign.exprs[0];
         
-        /*
-        export interface VarLValue {
-            type: "lvar";
-            name: string;
-        }
-        */
         if (target.type === "lvar") {
-            const varName = target.name;
-            
             // подстановка переменной на уровне AST перед конвертацией в Z3
-            return substituteInPredicate(postcondition, varName, expr);
+            return substituteInPredicate(postcondition, target.name, expr);
         }
         
         /*
@@ -262,53 +254,63 @@ function computeWPAssignment(
     throw new Error(`неизвестный assignment: ${assign}`);
 }
 
-function substituteInPredicate(predicate: Predicate, varName: string, expr: Expr): Predicate {
-    switch (predicate.kind) {
+// подстановка expr всесто varName в postcondition
+function substituteInPredicate(postcondition: Predicate, varName: string, expr: Expr): Predicate {
+    switch (postcondition.kind) {
         case "true":
-            return predicate;
         case "false":
-            return predicate;
+            return postcondition;
         case "comparison":
             return {
-                ...predicate,
-                left: substituteInExpr(predicate.left, varName, expr),
-                right: substituteInExpr(predicate.right, varName, expr)
-            };
+                ...postcondition,
+                left: substituteInExpr(postcondition.left, varName, expr),
+                right: substituteInExpr(postcondition.right, varName, expr),
+            } as Predicate;
         case "and":
             return {
-                ...predicate,
-                left: substituteInPredicate(predicate.left, varName, expr),
-                right: substituteInPredicate(predicate.right, varName, expr)
-            };
+                kind: "and",
+                left: substituteInPredicate((postcondition as AndPred).left, varName, expr),
+                right: substituteInPredicate((postcondition as AndPred).right, varName, expr),
+            } as Predicate;
         case "or":
             return {
-                ...predicate,
-                left: substituteInPredicate(predicate.left, varName, expr),
-                right: substituteInPredicate(predicate.right, varName, expr)
-            };  
+                kind: "or",
+                left: substituteInPredicate((postcondition as OrPred).left, varName, expr),
+                right: substituteInPredicate((postcondition as OrPred).right, varName, expr),
+            } as Predicate;
         case "not":
             return {
-                ...predicate,
-                predicate: substituteInPredicate(predicate.predicate, varName, expr)
-            };
+                kind: "not",
+                predicate: substituteInPredicate((postcondition as NotPred).predicate, varName, expr),
+            } as Predicate;
         case "paren":
             return {
-                ...predicate,
-                inner: substituteInPredicate(predicate.inner, varName, expr)
-            };
-        case "quantifier":
-            // не подставляю в связанные переменные
-            if (predicate.varName === varName) {
-                return predicate;
+                kind: "paren",
+                inner: substituteInPredicate((postcondition as ParenPred).inner, varName, expr),
+            } as Predicate;
+        case "quantifier": {
+            const q = postcondition as Quantifier;
+            // связанная переменная  не подставляется внутрь
+            if (q.varName === varName) {
+                return postcondition;
             }
             return {
-                ...predicate,
-                body: substituteInPredicate(predicate.body, varName, expr)
-            };
+                ...q,
+                body: substituteInPredicate(q.body, varName, expr),
+            } as Predicate;
+        }
+        case "implies":
+            return {
+                kind: "implies",
+                left: substituteInPredicate((postcondition as any).left, varName, expr),
+                right: substituteInPredicate((postcondition as any).right, varName, expr),
+            } as Predicate;
+
         case "formula":
             throw new Error("kys");
+
         default:
-            throw new Error(`неизвестный тип предиката: ${(predicate as any).kind}`);
+            throw new Error(`неизвестный тип предиката: ${(postcondition as any).kind}`);
     }
 }
 
@@ -468,45 +470,34 @@ function computeWPWhile(whileStmt: WhileStmt, postcondition: Predicate): Predica
     if (!whileStmt.invariant) {
         throw new Error("while цикл без инварианта");
     }
-    
-    const condition = convertConditionToPredicate(whileStmt.condition);
+
     const invariant = whileStmt.invariant;
+    const condition = convertConditionToPredicate(whileStmt.condition);
+
     const bodyWP = computeWP(whileStmt.body, invariant);
 
-    // WP для цикла: I & (I & C -> WP(body, I)) & (I & not(C) -> postcondition)
+    const implies = (left: Predicate, right: Predicate): Predicate => ({
+        kind: "or",
+        left: { kind: "not", predicate: left },
+        right,
+    });
+
+    const invAndCond: Predicate = { kind: "and", left: invariant, right: condition };
+    const invAndNotCond: Predicate = {
+        kind: "and",
+        left: invariant,
+        right: { kind: "not", predicate: condition },
+    };
+
     return {
         kind: "and",
         left: invariant,
         right: {
             kind: "and",
-            left: {
-                // I сохраняется в теле
-                kind: "or",
-                left: { 
-                    kind: "not", 
-                    predicate: { 
-                        kind: "and", 
-                        left: invariant, 
-                        right: condition 
-                    } 
-                },
-                right: bodyWP
-            },
-            right: {
-                // I -> postcondition при выходе из цикла
-                kind: "or", 
-                left: { 
-                    kind: "not", 
-                    predicate: { 
-                        kind: "and", 
-                        left: invariant, 
-                        right: { kind: "not", predicate: condition } 
-                    } 
-                },
-                right: postcondition
-            }
-        }
-    };
+            left: implies(invAndCond, bodyWP),
+            right: implies(invAndNotCond, postcondition),
+        },
+    } as Predicate;
 }
 
 // --- конвертация в Z3 ---
