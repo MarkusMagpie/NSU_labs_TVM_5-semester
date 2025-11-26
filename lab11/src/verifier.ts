@@ -186,20 +186,20 @@ function buildFunctionVerificationConditions(
 
 
 
-    function pruneForLog(x: any, depth = 3): any {
-        if (x === null || typeof x !== 'object') return x;
-        if (depth <= 0) return Array.isArray(x) ? '[Array]' : '[Object]';
-        const skip = new Set(['source','grammar','actionDict','operations','checkedActionDicts','attributeKeys']);
-        if (Array.isArray(x)) return x.map(el => pruneForLog(el, depth - 1));
-        const out: any = {};
-        for (const k of Object.keys(x)) {
-          if (skip.has(k)) continue;
-          try { out[k] = pruneForLog(x[k], depth - 1); } catch { out[k] = '[unserializable]'; }
-        }
-        return out;
-      }
+    // function pruneForLog(x: any, depth = 3): any {
+    //     if (x === null || typeof x !== 'object') return x;
+    //     if (depth <= 0) return Array.isArray(x) ? '[Array]' : '[Object]';
+    //     const skip = new Set(['source','grammar','actionDict','operations','checkedActionDicts','attributeKeys']);
+    //     if (Array.isArray(x)) return x.map(el => pruneForLog(el, depth - 1));
+    //     const out: any = {};
+    //     for (const k of Object.keys(x)) {
+    //       if (skip.has(k)) continue;
+    //       try { out[k] = pruneForLog(x[k], depth - 1); } catch { out[k] = '[unserializable]'; }
+    //     }
+    //     return out;
+    //   }
       
-      console.log("postcondition (pruned):", JSON.stringify(pruneForLog(postcondition), null, 2));
+    //   console.log("postcondition (pruned):", JSON.stringify(pruneForLog(postcondition), null, 2));
       
 
     // weakest precondition для тела функции
