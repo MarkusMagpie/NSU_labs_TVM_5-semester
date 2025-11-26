@@ -51,6 +51,7 @@ let z3: Context;
 export async function verifyModule(module: AnnotatedModule): Promise<VerificationResult[]>
 {
     const results: VerificationResult[] = [];
+    let has_failure = false;
     for (const func of module.functions) {
         try {
             // 1 вариант
@@ -66,14 +67,21 @@ export async function verifyModule(module: AnnotatedModule): Promise<Verificatio
             const environment = buildEnvironment(func, z3);
             const z3Condition = convertPredicateToZ3(verificationCondition, environment, z3);
             const result = await proveTheorem(z3Condition, z3);
+
+            const verified = result.result === "unsat";
+
             results.push(
                 {
                     function: func.name,
-                    verified: result.result === "unsat",
+                    verified,
                     error: result.result === "sat" ? "теорема неверна, так как найден контрпример. Вернул модель, опровергающую теорему." : undefined,
                     model: result.model
                 }
             );
+
+            if (!verified) {
+                has_failure = true;
+            }
         } catch (error) {
             results.push(
                 {
@@ -82,7 +90,13 @@ export async function verifyModule(module: AnnotatedModule): Promise<Verificatio
                     error: error as string
                 }
             );
+            has_failure = true;
         }
+    }
+
+    if (has_failure) {
+        const failedNames = results.filter(r => !r.verified).map(r => r.function).join(", ");
+        throw new Error(`Verification failed for: ${failedNames}`);
     }
 
     return results;
@@ -115,7 +129,7 @@ function buildEnvironment(func: AnnotatedFunctionDef, z3: Context): Map<string, 
     for (const param of func.parameters) {
         if (param.varType === "int") {
             environment.set(param.name, z3.Int.const(param.name));
-        } else if (param.type.toString() === "int[]") {
+        } else if (param.varType === "int[]") {
             // todo
             throw new Error("int[] не сделал");
         }
@@ -165,6 +179,28 @@ function buildFunctionVerificationConditions(
     // 2 вариант
     const precondition = combinePredicates(func.precondition);
     const postcondition = combinePredicates(func.postcondition);
+
+    // console.log("buildFunctionVerificationConditions for:", func.name);
+    // console.log("   precondition:", JSON.stringify(precondition, null, 2));
+    // console.log("   postcondition:", JSON.stringify(postcondition, null, 2));
+
+
+
+    function pruneForLog(x: any, depth = 3): any {
+        if (x === null || typeof x !== 'object') return x;
+        if (depth <= 0) return Array.isArray(x) ? '[Array]' : '[Object]';
+        const skip = new Set(['source','grammar','actionDict','operations','checkedActionDicts','attributeKeys']);
+        if (Array.isArray(x)) return x.map(el => pruneForLog(el, depth - 1));
+        const out: any = {};
+        for (const k of Object.keys(x)) {
+          if (skip.has(k)) continue;
+          try { out[k] = pruneForLog(x[k], depth - 1); } catch { out[k] = '[unserializable]'; }
+        }
+        return out;
+      }
+      
+      console.log("postcondition (pruned):", JSON.stringify(pruneForLog(postcondition), null, 2));
+      
 
     // weakest precondition для тела функции
     const wpBody = computeWP(func.body, postcondition);
@@ -235,8 +271,10 @@ function computeWPAssignment(
         const expr = assign.exprs[0];
         
         if (target.type === "lvar") {
-            // подстановка переменной на уровне AST перед конвертацией в Z3
-            return substituteInPredicate(postcondition, target.name, expr);
+            // подстановка переменной в postcondition на уровне AST перед конвертацией в Z3
+            const wp = substituteInPredicate(postcondition, target.name, expr);
+            console.log(`WP for assign ${target.name} := ${JSON.stringify(expr)} ->`, JSON.stringify(wp));
+            return wp;
         }
         
         /*
