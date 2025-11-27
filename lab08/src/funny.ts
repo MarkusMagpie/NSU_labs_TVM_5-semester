@@ -20,6 +20,7 @@ export interface ParameterDef
 {
     type: "param";
     name: string;
+    varType: "int" | "int[]"; 
 }
 
 
@@ -117,7 +118,7 @@ export interface ParenCond {
 
 
 // ПРЕДИКАТЫ
-export type Predicate = Quantifier | FormulaRef | FalseCond | TrueCond | ComparisonCond | NotPred | AndPred | OrPred | ParenPred;
+export type Predicate = Quantifier | FormulaRef | FalseCond | TrueCond | ComparisonCond | NotPred | AndPred | OrPred | ParenPred | ImpliesPred;
 export interface Quantifier {
     kind: "quantifier";
     quant: "forall" | "exists";
@@ -147,4 +148,10 @@ export interface OrPred {
 export interface ParenPred {
     kind: "paren";
     inner: Predicate;
+}
+
+export interface ImpliesPred {
+    kind: "implies";
+    left: Predicate;
+    right: Predicate;
 }

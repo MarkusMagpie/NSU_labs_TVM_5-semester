@@ -575,10 +575,10 @@ export const getFunnyAst = {
         | "(" Predicate ")"   -- paren
     */
     AtomPred_quantifier(arg0) {
-        return arg0;
+        return arg0.parse();
     },
     AtomPred_formula_ref(arg0) {
-        return arg0;
+        return arg0.parse();
     },
     AtomPred_true(t) {
         return { kind: "true" };
@@ -587,10 +587,10 @@ export const getFunnyAst = {
         return { kind: "false" };
     },
     AtomPred_comparison(cmp) {
-        return cmp;
+        return cmp.parse();
     },
     AtomPred_paren(left_paren, inner_pred: any, right_paren) {
-        return { kind: "paren", inner: inner_pred };
+        return { kind: "paren", inner: inner_pred.parse() };
     },
 
     /*
