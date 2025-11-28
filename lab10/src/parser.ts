@@ -14,6 +14,10 @@ function checkFunctionCalls(module: AnnotatedModule) {
         });
     }
 
+    const builtins = new Map<string, { params: number, returns: number }>([
+        ['length', { params: 1, returns: 1 }],
+    ]);
+
     function visitNode(node: any, context: { expectedReturns?: number } = {}) {
         if (!node) return;
 
@@ -22,12 +26,12 @@ function checkFunctionCalls(module: AnnotatedModule) {
             const funcName = node.name;
             const argCount = Array.isArray(node.args) ? node.args.length : 0;
             // console.log(`visitNode: funccall ${funcName} has ${argCount} arguments`);
-
-            if (!functionTable.has(funcName)) {
+            
+            // const funcInfo = functionTable.get(funcName)!;
+            const funcInfo = functionTable.get(funcName) ?? builtins.get(funcName);
+            if (!funcInfo) {
                 throw new Error(`function ${funcName} is not declared`);
             }
-            
-            const funcInfo = functionTable.get(funcName)!;
 
             const expectedArgCount = funcInfo.params;
             if (argCount !== expectedArgCount) {

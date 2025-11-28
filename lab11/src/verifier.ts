@@ -11,6 +11,7 @@ import {
     TrueCond, FalseCond, ComparisonCond, NotCond, AndCond, OrCond, ImpliesCond, ParenCond,
     Quantifier, FormulaRef, NotPred, AndPred, OrPred, ParenPred
 } from "../../lab08/src/funny";
+import exp from "constants";
 
 
 let z3anchor;
@@ -137,6 +138,7 @@ function buildEnvironment(func: AnnotatedFunctionDef, z3: Context): Map<string, 
             environment.set(param.name, z3.Int.const(param.name));
         } else if (param.varType === "int[]") {
             // todo
+            console.log("int[] не сделал");
             throw new Error("int[] не сделал");
         }
     }
@@ -145,6 +147,10 @@ function buildEnvironment(func: AnnotatedFunctionDef, z3: Context): Map<string, 
     for (const ret of func.returns) {
         if (ret.varType === "int") {
             environment.set(ret.name, z3.Int.const(ret.name));
+        } else if (ret.varType === "int[]") {
+            // todo
+            console.log("int[] не сделал");
+            throw new Error("int[] не сделал");
         }
     }
 
@@ -152,6 +158,10 @@ function buildEnvironment(func: AnnotatedFunctionDef, z3: Context): Map<string, 
     for (const local of func.locals) {
         if (local.varType === "int") {
             environment.set(local.name, z3.Int.const(local.name));
+        } else if (local.varType === "int[]") {
+            // todo
+            console.log("int[] не сделал");
+            throw new Error("int[] не сделал");
         }
     }
 
@@ -186,25 +196,21 @@ function buildFunctionVerificationConditions(
     const precondition = combinePredicates(func.precondition);
     const postcondition = combinePredicates(func.postcondition);
 
-    // console.log("buildFunctionVerificationConditions for:", func.name);
-    // console.log("   precondition:", JSON.stringify(precondition, null, 2));
-    // console.log("   postcondition:", JSON.stringify(postcondition, null, 2));
-
-    function pruneForLog(x: any, depth = 3): any {
-        if (x === null || typeof x !== 'object') return x;
-        if (depth <= 0) return Array.isArray(x) ? '[Array]' : '[Object]';
-        const skip = new Set(['source','grammar','actionDict','operations','checkedActionDicts','attributeKeys']);
-        if (Array.isArray(x)) return x.map(el => pruneForLog(el, depth - 1));
-        const out: any = {};
-        for (const k of Object.keys(x)) {
-          if (skip.has(k)) continue;
-          try { out[k] = pruneForLog(x[k], depth - 1); } catch { out[k] = '[unserializable]'; }
-        }
+    // function pruneForLog(x: any, depth = 3): any {
+    //     if (x === null || typeof x !== 'object') return x;
+    //     if (depth <= 0) return Array.isArray(x) ? '[Array]' : '[Object]';
+    //     const skip = new Set(['source','grammar','actionDict','operations','checkedActionDicts','attributeKeys']);
+    //     if (Array.isArray(x)) return x.map(el => pruneForLog(el, depth - 1));
+    //     const out: any = {};
+    //     for (const k of Object.keys(x)) {
+    //       if (skip.has(k)) continue;
+    //       try { out[k] = pruneForLog(x[k], depth - 1); } catch { out[k] = '[unserializable]'; }
+    //     }
         
-        return out;
-    }
+    //     return out;
+    // }
       
-    console.log("postcondition (pruned):", JSON.stringify(pruneForLog(postcondition), null, 2));
+    // console.log("postcondition (pruned):", JSON.stringify(pruneForLog(postcondition), null, 2));
       
 
     // weakest precondition для тела функции
@@ -599,6 +605,35 @@ function convertComparisonToZ3(
     }
 }
 
+// генерация ключа на основе структуры выражения индекса
+function generateIndexKey(indexExpr: Expr): string {
+    switch (indexExpr.type) {
+        case "num":
+            return `const_${indexExpr.value}`;
+        case "var":
+            return `var_${indexExpr.name}`;
+        case "bin":
+            const leftKey = generateIndexKey(indexExpr.left);
+            const rightKey = generateIndexKey(indexExpr.right);
+            
+            // ! для некоммутативных операций операнды сортируются [1+j] = [j+1]
+            if (indexExpr.operation === "+" || indexExpr.operation === "*") {
+                const sorted = [leftKey, rightKey].sort();
+                return `bin_${indexExpr.operation}_${sorted[0]}_${sorted[1]}`;
+            }
+            return `bin_${indexExpr.operation}_${leftKey}_${rightKey}`;
+        case "neg":
+            return `neg_${generateIndexKey(indexExpr.arg)}`;
+        case "funccall":
+            const argsKey = indexExpr.args.map(generateIndexKey).join("_");
+            return `call_${indexExpr.name}_${argsKey}`;
+        case "arraccess":
+            return `arr_${indexExpr.name}_${generateIndexKey(indexExpr.index)}`;
+        default:
+            return `unknown_${Math.random().toString(36).substr(2, 9)}`;
+    }
+}
+
 function convertExprToZ3(
     expr: Expr,
     env: Map<string, Arith>,
@@ -625,11 +660,50 @@ function convertExprToZ3(
                 default: throw new Error(`неизвестный бинарный опер: ${expr.operation}`);
             }
         case "funccall":
-            // todo
-            throw new Error("todo funccall");
+            // if (expr.name === "foo1") {
+            //     return z3.Int.val(42);
+            // }
+            // if (expr.name === "foo2" && expr.args.length === 1) {
+            //     const arg = convertExprToZ3(expr.args[0], env, z3);
+            //     return arg.add(1);
+            // }
+
+            // конвертация всех аргументов в Z3
+            const args = expr.args.map(arg => convertExprToZ3(arg, env, z3));
+            
+            // уникальное имя для результата функции
+            const argString = args.map(a => a.toString()).join('_');
+            const funcResultName = `${expr.name}_result_${argString}`;
+            
+            // не создавали ли уже такую? если да, то возвращаю
+            if (env.has(funcResultName)) {
+                return env.get(funcResultName)!;
+            }
+            
+            // новая Z3 переменная для результата функции
+            const funcResult = z3.Int.const(funcResultName);
+            // добавляю ее в окружение для последующего использования
+            env.set(funcResultName, funcResult);
+            
+            return funcResult;
         case "arraccess":
-            // todo
-            throw new Error("todo arraccess");
+            const arrayName = expr.name; // arr[i] -> "arr"
+            // конвертация индекса массива в Z3
+            const index = convertExprToZ3(expr.index, env, z3);
+
+            // переменная для элемента массива (arr[5] -> "arr_elem_5")
+            const indexKey = generateIndexKey(expr.index);
+            const elemVarName = `${arrayName}_elem_${indexKey}`;
+            
+            // не создавали ли уже такую? если да, то возвращаю
+            if (env.has(elemVarName)) {
+                return env.get(elemVarName)!;
+            }
+            
+            // новая Z3 переменная для элемента массива
+            const elemVar = z3.Int.const(elemVarName);
+            env.set(elemVarName, elemVar);
+            return elemVar;
         default:
             throw new Error(`неизвестный expression type: ${(expr as any).type}`);
     }
