@@ -65,9 +65,10 @@ export async function verifyModule(module: AnnotatedModule): Promise<Verificatio
             
             // конвертация в Z3 только в конце
             z3 = await initZ3();
+            const solver = new z3.Solver(); // НОВОЕ
             const environment = buildEnvironment(func, z3);
-            const z3Condition = convertPredicateToZ3(verificationCondition, environment, z3);
-            const result = await proveTheorem(z3Condition, z3);
+            const z3Condition = convertPredicateToZ3(verificationCondition, environment, z3, module, solver);
+            const result = await proveTheorem(z3Condition, solver);
 
             const verified = result.result === "unsat";
 
@@ -105,14 +106,12 @@ export async function verifyModule(module: AnnotatedModule): Promise<Verificatio
 
 async function proveTheorem(
     theorem: Bool,
-    z3: Context
+    solver: any
 ): Promise<{ result: "sat" | "unsat" | "unknown"; model?: Model }> {
-    const solver = new z3.Solver();
-
     try {
-        console.log("Z3 theorem (toString):", theorem.toString());
+        console.log("Z3 теорема:", theorem.toString());
     } catch (e) {
-        console.log("Z3 theorem (toString) failed:", e);
+        console.log("не удалось получить состояние солвера:", e);
     }
     
     // + отрицание теоремы - если оно отрицательно, то теорема верна
@@ -196,23 +195,6 @@ function buildFunctionVerificationConditions(
     const precondition = combinePredicates(func.precondition);
     const postcondition = combinePredicates(func.postcondition);
 
-    // function pruneForLog(x: any, depth = 3): any {
-    //     if (x === null || typeof x !== 'object') return x;
-    //     if (depth <= 0) return Array.isArray(x) ? '[Array]' : '[Object]';
-    //     const skip = new Set(['source','grammar','actionDict','operations','checkedActionDicts','attributeKeys']);
-    //     if (Array.isArray(x)) return x.map(el => pruneForLog(el, depth - 1));
-    //     const out: any = {};
-    //     for (const k of Object.keys(x)) {
-    //       if (skip.has(k)) continue;
-    //       try { out[k] = pruneForLog(x[k], depth - 1); } catch { out[k] = '[unserializable]'; }
-    //     }
-        
-    //     return out;
-    // }
-      
-    // console.log("postcondition (pruned):", JSON.stringify(pruneForLog(postcondition), null, 2));
-      
-
     // weakest precondition для тела функции
     const wpBody = computeWP(func.body, postcondition);
 
@@ -260,6 +242,7 @@ function computeWP(
         case "while":
             return computeWPWhile(statement as WhileStmt, postcondition);
         default:
+            console.log(`неизвестный оператор: ${(statement as any).type}`);
             throw new Error(`неизвестный оператор: ${(statement as any).type}`);
     }
 }
@@ -296,10 +279,13 @@ function computeWPAssignment(
         }
         */
         if (target.type === "larr") {
+            // todo
+            console.log("присваивание элементам массива не реализовано");
             throw new Error("присваивание элементам массива не реализовано");
         }
     }
     
+    console.log(`неизвестный assignment: ${assign}`);
     throw new Error(`неизвестный assignment: ${assign}`);
 }
 
@@ -356,9 +342,11 @@ function substituteInPredicate(postcondition: Predicate, varName: string, expr: 
             } as Predicate;
 
         case "formula":
+            console.log("todo formula");
             throw new Error("kys");
 
         default:
+            console.log(`неизвестный тип предиката: ${(postcondition as any).kind}`);
             throw new Error(`неизвестный тип предиката: ${(postcondition as any).kind}`);
     }
 }
@@ -395,6 +383,7 @@ function substituteInExpr(expr: Expr, varName: string, substitution: Expr): Expr
                 index: substituteInExpr(expr.index, varName, substitution)
             } as Expr;
         default:
+            console.log(`неизвестный тип выражения: ${(expr as any).type}`);
             throw new Error(`неизвестный тип выражения: ${(expr as any).type}`);
     }
 }
@@ -503,6 +492,7 @@ function convertConditionToPredicate(condition: Condition): Predicate {
                 inner: convertConditionToPredicate(condition.inner)
             };
         default:
+            console.log(`неизвестный тип условия: ${(condition as any).kind}`);
             throw new Error(`неизвестный тип условия: ${(condition as any).kind}`);
     }
 }
@@ -553,35 +543,38 @@ function computeWPWhile(whileStmt: WhileStmt, postcondition: Predicate): Predica
 function convertPredicateToZ3(
     predicate: Predicate,
     env: Map<string, Arith>,
-    z3: Context
+    z3: Context,
+    module: AnnotatedModule,
+    solver: any
 ): Bool {
     switch (predicate.kind) {
         case "true": return z3.Bool.val(true);
         case "false": return z3.Bool.val(false);
         case "comparison": 
-            return convertComparisonToZ3(predicate, env, z3);
+            return convertComparisonToZ3(predicate, env, z3, module, solver);
         case "and":
             return z3.And(
-                convertPredicateToZ3((predicate as AndPred).left, env, z3),
-                convertPredicateToZ3((predicate as AndPred).right, env, z3)
+                convertPredicateToZ3((predicate as AndPred).left, env, z3, module, solver),
+                convertPredicateToZ3((predicate as AndPred).right, env, z3, module, solver)
             );
         case "or":
             return z3.Or(
-                convertPredicateToZ3((predicate as OrPred).left, env, z3),
-                convertPredicateToZ3((predicate as OrPred).right, env, z3)
+                convertPredicateToZ3((predicate as OrPred).left, env, z3, module, solver),
+                convertPredicateToZ3((predicate as OrPred).right, env, z3, module, solver)
             );
         case "not":
-            return z3.Not(convertPredicateToZ3((predicate as NotPred).predicate, env, z3));
+            return z3.Not(convertPredicateToZ3((predicate as NotPred).predicate, env, z3, module, solver));
         case "paren":
-            return convertPredicateToZ3((predicate as ParenPred).inner, env, z3);
+            return convertPredicateToZ3((predicate as ParenPred).inner, env, z3, module, solver);
         case "quantifier":
-            return convertQuantifierToZ3(predicate as Quantifier, env, z3);
+            return convertQuantifierToZ3(predicate as Quantifier, env, z3, module, solver);
         case "implies":
             return z3.Implies(
-                convertPredicateToZ3((predicate as any).left, env, z3),
-                convertPredicateToZ3((predicate as any).right, env, z3)
+                convertPredicateToZ3((predicate as any).left, env, z3, module, solver),
+                convertPredicateToZ3((predicate as any).right, env, z3, module, solver)
             );
         default:
+            console.log(`что за предикат таккой: ${(predicate as any).kind}`);
             throw new Error(`что за предикат таккой: ${(predicate as any).kind}`);
     }
 }
@@ -589,10 +582,12 @@ function convertPredicateToZ3(
 function convertComparisonToZ3(
     comparison: ComparisonCond,
     env: Map<string, Arith>,
-    z3: Context
+    z3: Context,
+    module: AnnotatedModule,
+    solver: any
 ): Bool {
-    const left = convertExprToZ3(comparison.left, env, z3);
-    const right = convertExprToZ3(comparison.right, env, z3);
+    const left = convertExprToZ3(comparison.left, env, z3, module, solver);
+    const right = convertExprToZ3(comparison.right, env, z3, module, solver);
     
     switch (comparison.op) {
         case "==": return left.eq(right);
@@ -601,7 +596,9 @@ function convertComparisonToZ3(
         case "<": return left.lt(right);
         case ">=": return left.ge(right);
         case "<=": return left.le(right);
-        default: throw new Error(`unnown comparison operator: ${comparison.op}`);
+        default: 
+            console.log(`unnown comparison operator: ${comparison.op}`);
+            throw new Error(`unnown comparison operator: ${comparison.op}`);
     }
 }
 
@@ -637,27 +634,32 @@ function generateIndexKey(indexExpr: Expr): string {
 function convertExprToZ3(
     expr: Expr,
     env: Map<string, Arith>,
-    z3: Context
+    z3: Context,
+    module: AnnotatedModule, // для доступа к спецификациям функций
+    solver: any // для добавления аксиом
 ): Arith {
     switch (expr.type) {
         case "num": return z3.Int.val(expr.value);
         case "var":
             const varExpr = env.get(expr.name);
             if (!varExpr) {
+                console.log(`неизвестная перем: ${expr.name}`);
                 throw new Error(`неизвестная перем: ${expr.name}`);
             }
 
             return varExpr;
-        case "neg": return convertExprToZ3(expr.arg, env, z3).neg();
+        case "neg": return convertExprToZ3(expr.arg, env, z3, module, solver).neg();
         case "bin":
-            const left = convertExprToZ3(expr.left, env, z3);
-            const right = convertExprToZ3(expr.right, env, z3);
+            const left = convertExprToZ3(expr.left, env, z3, module, solver);
+            const right = convertExprToZ3(expr.right, env, z3, module, solver);
             switch (expr.operation) {
                 case "+": return left.add(right);
                 case "-": return left.sub(right);
                 case "*": return left.mul(right);
                 case "/": return left.div(right);
-                default: throw new Error(`неизвестный бинарный опер: ${expr.operation}`);
+                default: 
+                    console.log(`неизвестный бинарный опер: ${expr.operation}`);
+                    throw new Error(`неизвестный бинарный опер: ${expr.operation}`);
             }
         case "funccall":
             // if (expr.name === "foo1") {
@@ -669,8 +671,8 @@ function convertExprToZ3(
             // }
 
             // конвертация всех аргументов в Z3
-            const args = expr.args.map(arg => convertExprToZ3(arg, env, z3));
-            
+            const args = expr.args.map(arg => convertExprToZ3(arg, env, z3, module, solver));
+
             // уникальное имя для результата функции
             const argString = args.map(a => a.toString()).join('_');
             const funcResultName = `${expr.name}_result_${argString}`;
@@ -684,12 +686,18 @@ function convertExprToZ3(
             const funcResult = z3.Int.const(funcResultName);
             // добавляю ее в окружение для последующего использования
             env.set(funcResultName, funcResult);
+
+            // НОВОЕ - поиск спецификации функции И добавляю ее аксиомы
+            const funcSpec = findFunctionSpec(expr.name, module);
+            if (funcSpec) {
+                addFunctionAxioms(expr.name, funcSpec, args, funcResult, env, z3, solver, module);
+            }
             
             return funcResult;
         case "arraccess":
             const arrayName = expr.name; // arr[i] -> "arr"
             // конвертация индекса массива в Z3
-            const index = convertExprToZ3(expr.index, env, z3);
+            const index = convertExprToZ3(expr.index, env, z3, module, solver);
 
             // переменная для элемента массива (arr[5] -> "arr_elem_5")
             const indexKey = generateIndexKey(expr.index);
@@ -705,8 +713,54 @@ function convertExprToZ3(
             env.set(elemVarName, elemVar);
             return elemVar;
         default:
+            console.log(`неизвестный expression type: ${(expr as any).type}`);
             throw new Error(`неизвестный expression type: ${(expr as any).type}`);
     }
+}
+
+function findFunctionSpec(funcName: string, module: AnnotatedModule): AnnotatedFunctionDef | null {
+    return module.functions.find(f => f.name === funcName) || null;
+}
+
+// добавление аксиомы на основе постусловия функции
+function addFunctionAxioms(
+    funcName: string,
+    funcSpec: AnnotatedFunctionDef,
+    args: Arith[],
+    result: Arith,
+    env: Map<string, Arith>,
+    z3: Context,
+    solver: any,
+    module: AnnotatedModule
+) {
+    if (!funcSpec.postcondition) {
+        console.log(`функция ${funcName}: нет постусловия -> аксиомы не добавляются`);
+        return; 
+    }
+
+    // временное окружение для параметров функции
+    const funcEnv = new Map<string, Arith>();
+    
+    // формальные параметры
+    funcSpec.parameters.forEach((param, index) => {
+        if (index < args.length) {
+            funcEnv.set(param.name, args[index]);
+        }
+    });
+    
+    // возвращаемое значение
+    if (funcSpec.returns.length === 1) {
+        funcEnv.set(funcSpec.returns[0].name, result);
+    }
+    
+    // компбинация постусловий (если их несколько)
+    const postcondition = combinePredicates(funcSpec.postcondition);
+    
+    // постусловие -> Z3 с использованием временного окружения
+    const z3Postcondition = convertPredicateToZ3(postcondition, funcEnv, z3, module, solver);
+    
+    // ++ АКСИОМА: постусловие всегда истинно
+    solver.add(z3Postcondition);
 }
 
 /*
@@ -727,7 +781,9 @@ export interface Quantifier {
 function convertQuantifierToZ3(
     quantifier: Quantifier,
     env: Map<string, Arith>,
-    z3: Context
+    z3: Context,
+    module: AnnotatedModule,
+    solver: any
 ): Bool {
     // новая переменная для квантора
     const varName = quantifier.varName;
@@ -737,6 +793,7 @@ function convertQuantifierToZ3(
         varExpr = z3.Int.const(varName);
     } else {
         // todo
+        console.log("в кванторах числовых массивов пока нема");
         throw new Error("в кванторах числовых массивов пока нема");
     }
 
@@ -744,7 +801,7 @@ function convertQuantifierToZ3(
     const new_environment = new Map(env);
     new_environment.set(varName, varExpr);
 
-    const body = convertPredicateToZ3(quantifier.body, new_environment, z3);
+    const body = convertPredicateToZ3(quantifier.body, new_environment, z3, module, solver);
 
     if (quantifier.quant === "forall") {
         return z3.ForAll([varExpr], body);

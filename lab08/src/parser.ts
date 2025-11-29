@@ -383,7 +383,7 @@ export const getFunnyAst = {
         }
 
         for (const item of items) {
-            const rightNode = item.children ? item.children[1] : null;
+            const rightNode = item.children ? item.children[0].children[1] : null;
             const right_parsed = rightNode.parse();
             result = { kind: "or", left: result, right: right_parsed };
         }
@@ -520,7 +520,7 @@ export const getFunnyAst = {
         }
 
         for (const item of items) {
-            const rightNode = item.children ? item.children[1] : null;
+            const rightNode = item.children ? item.children[0].children[1] : null;
             const right_parsed = rightNode.parse();
             result = { kind: "or", left: result, right: right_parsed };
         }

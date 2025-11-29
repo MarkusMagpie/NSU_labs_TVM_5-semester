@@ -180,29 +180,15 @@ function resolvePredicate(node: any): Predicate | null {
     if (typeof node.parse === "function") {
         try {
             const p = node.parse();
-            // если parse вернул готовый Predicate — используем его
-            if (p && typeof (p as any).kind !== "undefined") return p as Predicate;
-            // иначе рекурсивно попробуем распаковать результат parse()
+            // если parse вернул готовый Predicate 
+            if (p && typeof (p as any).kind !== "undefined") {
+                return p as Predicate;
+            }
+            // иначе рекурсивно распаковать результат parse()
             const rec = resolvePredicate(p);
             if (rec) return rec;
         } catch {
-            // игнорируем ошибки parse и пробуем другие варианты
-        }
-    }
-
-    // если это Ohm Wrapper с args (Semantics.Wrapper)
-    if (node && Array.isArray((node as any).args) && (node as any).args.length > 0) {
-        for (const a of (node as any).args) {
-            const r = resolvePredicate(a);
-            if (r) return r;
-        }
-    }
-
-    // старые/вспомогательные поля: _node.children
-    if (node && node._node && Array.isArray(node._node.children)) {
-        for (const child of node._node.children) {
-            const r = resolvePredicate(child);
-            if (r) return r;
+            // игнор
         }
     }
 
@@ -214,19 +200,10 @@ function resolvePredicate(node: any): Predicate | null {
         }
     }
 
-    // попытка пройти по полям объекта в поисках подходящего ребёнка
-    if (typeof node === "object") {
-        for (const k of Object.keys(node)) {
-            const v = (node as any)[k];
-            if (Array.isArray(v)) {
-                for (const el of v) {
-                    const r = resolvePredicate(el);
-                    if (r) return r;
-                }
-            } else {
-                const r = resolvePredicate(v);
-                if (r) return r;
-            }
+    if (Array.isArray(node)) {
+        for (const el of node) {
+            const r = resolvePredicate(el);
+            if (r) return r;
         }
     }
 
@@ -347,16 +324,11 @@ const getFunnierAst = {
         // ? preopt.children[0].children[1].children.map((x: any) => x.parse())
         // : [];
         // 3
-        // const rawPre = preopt; // как приходит из Ohm
-        // const parsedPre = extractParsedPredicate(rawPre);
-        // const preopt_ast = parsedPre ? [parsedPre] : null;
-        // 4
         let preopt_ast: Predicate[] | null = null;
-        if (preopt) {
+        if (postopt) {
             const resolved = resolvePredicate(preopt);
             if (resolved) preopt_ast = [resolved];
         }
-
 
         let arr_return_array: ParameterDef[] = [];
         if (returns_list && returns_list.sourceString && returns_list.sourceString.trim() !== "void") {
@@ -369,10 +341,6 @@ const getFunnierAst = {
             const resolved = resolvePredicate(postopt);
             if (resolved) postopt_ast = [resolved];
         }
-
-        // console.log("preopt keys:", preopt && Object.keys(preopt));
-        // console.log("postopt keys:", postopt && Object.keys(postopt));
-
 
         // UsesOpt = ("uses" ParamList)? 
         const arr_locals_array = usesopt.children.length > 0
