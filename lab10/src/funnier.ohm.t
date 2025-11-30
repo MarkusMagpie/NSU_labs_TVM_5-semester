@@ -21,11 +21,4 @@ Funnier <: Funny {
 
     // пишу обновленный инвариант к правилу: While
     InvariantOpt := "invariant" Predicate 
-
-    // вызов функции как оператора
-    Statement := Assignment
-        | Block
-        | Conditional
-        | While
-        | FunctionCall ";" -- function_call_statement
 }

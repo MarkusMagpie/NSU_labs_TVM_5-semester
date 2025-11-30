@@ -21,6 +21,35 @@ function checkFunctionCalls(module: AnnotatedModule) {
     function visitNode(node: any, context: { expectedReturns?: number } = {}) {
         if (!node) return;
 
+        if (node.type === "funccallstmt") {
+            const funcCall = node.call;
+            const funcName = funcCall.name;
+            const argCount = Array.isArray(funcCall.args) ? funcCall.args.length : 0;
+            
+            const funcInfo = functionTable.get(funcName) ?? builtins.get(funcName);
+            if (!funcInfo) {
+                throw new Error(`function ${funcName} is not declared`);
+            }
+    
+            const expectedArgCount = funcInfo.params;
+            if (argCount !== expectedArgCount) {
+                throw new Error();
+            }
+    
+            // для вызова функции как оператора не ожидаю возвращаемых значений
+            const returnsCount = funcInfo.returns;
+            if (returnsCount !== 0) {
+                throw new Error(`function ${funcName} used as statement must return void but returns ${returnsCount} values`);
+            }
+    
+            if (Array.isArray(funcCall.args)) {
+                for (const arg of funcCall.args) {
+                    visitNode(arg, { expectedReturns: 1 });
+                }
+            }
+            return;
+        }
+
         // если узел вызов функции проверяю число параметров по таблице 
         if (node.type === "funccall") {
             const funcName = node.name;
@@ -394,11 +423,6 @@ const getFunnierAst = {
             postcondition: postopt_ast,
             body: parsedStatement } as AnnotatedFunctionDef;
         },
-
-    Statement_function_call_statement(func_call, semicolon) {
-        return func_call.parse();
-    }
-
 } satisfies FunnierActionDict<any>;
 
 export const semantics: FunnySemanticsExt = grammar.Funnier.createSemantics() as FunnySemanticsExt;

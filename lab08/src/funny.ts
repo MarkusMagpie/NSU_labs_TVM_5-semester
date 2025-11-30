@@ -26,7 +26,7 @@ export interface ParameterDef
 
 
 // STATEMENTS/ОПЕРАТОРЫ
-export type Statement = AssignStmt | BlockStmt | ConditionalStmt | WhileStmt;
+export type Statement = AssignStmt | BlockStmt | ConditionalStmt | WhileStmt | FunctionCallStmt;
 
 export type LValue = VarLValue | ArrLValue;
 export interface VarLValue {
@@ -58,6 +58,10 @@ export interface WhileStmt {
     condition: Condition;
     invariant: Predicate | null;
     body: Statement;
+}
+export interface FunctionCallStmt {
+    type: "funccallstmt";
+    call: FuncCallExpr;
 }
 
 

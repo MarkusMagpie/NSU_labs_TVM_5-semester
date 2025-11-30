@@ -24,6 +24,7 @@ Funny <: Arithmetic {
         | Block
         | Conditional
         | While
+        | FunctionCall ";" -- function_call_statement
     // прсваивание - обращение к массиву или кортежное присваивание из вызова функции
     Assignment = LValueList "=" ExprList ";"    -- tuple_assignment
         | LValue "=" Expr ";"                   -- simple_assignment

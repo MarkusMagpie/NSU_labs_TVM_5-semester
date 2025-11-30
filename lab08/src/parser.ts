@@ -77,6 +77,9 @@ export function collectNamesInNode(node: any, out: Set<string>) {
             collectNamesInNode(node.left, out);
             collectNamesInNode(node.right, out);
             break;
+        case "funccallstmt": 
+            collectNamesInNode(node.call, out);
+            break;
         // для атмосферы
         case "num":
             break;
@@ -183,7 +186,7 @@ export const getFunnyAst = {
     },
     // Preopt = "requires" Predicate 
     Preopt(requires_str, predicate) {
-        return predicate;
+        return predicate.parse();
     },
     // UsesOpt = "uses" ParamList 
     UsesOpt(uses_str, paramsNode) {
@@ -283,7 +286,7 @@ export const getFunnyAst = {
     },
     // LValue = variable "[" Expr "]" 
     LValue_array_access(name, leftbracket, expr: any, rightbracket) {
-        return { type: "larr", name: name.sourceString, index: expr } as ast.ArrLValue;
+        return { type: "larr", name: name.sourceString, index: expr.parse() } as ast.ArrLValue;
     },
     // LValue = variable 
     LValue_variable(name) {
@@ -298,21 +301,28 @@ export const getFunnyAst = {
     },
     // Conditional = "if" "(" Condition ")" Statement ("else" Statement)?
     Conditional(_if, left_paren, condition: any, right_paren, _then: any, _else, _else_statement: any) {
-        const condition_parsed = condition.children.length > 0 ? condition.children[0].parse() : null;
-        let then_parsed = _then.children.length > 0 ? _then.children[0].parse() : null;
+        const condition_parsed = condition.parse();
+        let then_parsed = _then.parse();
         let else_statement = _else.children.length > 0 ? _else_statement.children[0].parse() : null;
         return { type: "if", condition: condition_parsed, then: then_parsed, else: else_statement } as ast.ConditionalStmt;
     },
     // While = "while" "(" Condition ")" InvariantOpt? Statement
     While(_while, left_paren, condition: any, right_paren, inv: any, _then: any) {
         const invariant = inv.children.length > 0 ? inv.children[0].parse() : null;
-        const condition_parsed = condition.children.length > 0 ? condition.children[0].parse() : null;
-        const then_parsed = _then.children.length > 0 ? _then.children[0].parse() : null;
+        const condition_parsed = condition.parse();
+        const then_parsed = _then.parse();
         return { type: "while", condition: condition_parsed, invariant: invariant, body: then_parsed } as ast.WhileStmt;
+    },
+    Statement_function_call_statement(funccall: any, semi) {
+        const call = funccall.parse();
+        return { 
+            type: "funccallstmt", 
+            call: call 
+        } as ast.FunctionCallStmt;
     },
     // InvariantOpt = "invariant" Predicate
     InvariantOpt(_inv, predicate: any) {
-        return predicate;
+        return predicate.parse();
     },
 
 
@@ -331,7 +341,7 @@ export const getFunnyAst = {
     },
     // ArrayAccess = variable "[" Expr "]"
     ArrayAccess(name, left_bracket, expr: any, right_bracket) {
-        return { type: "arraccess", name: name.sourceString, index: expr } as ast.ArrAccessExpr;
+        return { type: "arraccess", name: name.sourceString, index: expr.parse() } as ast.ArrAccessExpr;
     },
 
 
@@ -441,8 +451,7 @@ export const getFunnyAst = {
         return { kind: "false" } as ast.FalseCond;
     },
     AtomCond_comparison(arg0) {
-        const arg_parsed = arg0.children.length > 0 ? arg0.children[0].parse() : null;
-        return arg_parsed;
+        return arg0.parse();
     },
     AtomCond_paren(left_paren, cond: any, right_paren) {
         return { kind: "paren", inner: cond.parse() } as ast.ParenCond;
@@ -457,35 +466,35 @@ export const getFunnyAst = {
         | Expr "<"  Expr                        -- lt
     */
     Comparison_eq(left_expr: any, eq, right_expr: any) {
-        // const left_parsed = (left_expr && typeof left_expr.parse === "function") ? left_expr.parse() : left_expr;
-        // const right_parsed = (right_expr && typeof right_expr.parse === "function") ? right_expr.parse() : right_expr;
-        const left_parsed = left_expr.children.length > 0 ? left_expr.children[0].parse() : null;
-        const right_parsed = right_expr.children.length > 0 ? right_expr.children[0].parse() : null;
+        // const left_parsed = left_expr.children.length > 0 ? left_expr.children[0].parse() : null;
+        // const right_parsed = right_expr.children.length > 0 ? right_expr.children[0].parse() : null;
+        const left_parsed = left_expr.parse();
+        const right_parsed = right_expr.parse();
         return { kind: "comparison", left: left_parsed, op: "==", right: right_parsed } as ast.ComparisonCond;
     },
     Comparison_neq(left_expr: any, neq, right_expr: any) {
-        const left_parsed = left_expr.children.length > 0 ? left_expr.children[0].parse() : null;
-        const right_parsed = right_expr.children.length > 0 ? right_expr.children[0].parse() : null;
+        const left_parsed = left_expr.parse();
+        const right_parsed = right_expr.parse();
         return { kind: "comparison", left: left_parsed, op: "!=", right: right_parsed } as ast.ComparisonCond;
     },
     Comparison_ge(left_expr: any, ge, right_expr: any) {
-        const left_parsed = left_expr.children.length > 0 ? left_expr.children[0].parse() : null;
-        const right_parsed = right_expr.children.length > 0 ? right_expr.children[0].parse() : null;
+        const left_parsed = left_expr.parse();
+        const right_parsed = right_expr.parse();
         return { kind: "comparison", left: left_parsed, op: ">=", right: right_parsed } as ast.ComparisonCond;
     },
     Comparison_le(left_expr: any, le, right_expr: any) {
-        const left_parsed = left_expr.children.length > 0 ? left_expr.children[0].parse() : null;
-        const right_parsed = right_expr.children.length > 0 ? right_expr.children[0].parse() : null;
+        const left_parsed = left_expr.parse();
+        const right_parsed = right_expr.parse();
         return { kind: "comparison", left: left_parsed, op: "<=", right: right_parsed } as ast.ComparisonCond;
     },
     Comparison_gt(left_expr: any, gt, right_expr: any) {
-        const left_parsed = left_expr.children.length > 0 ? left_expr.children[0].parse() : null;
-        const right_parsed = right_expr.children.length > 0 ? right_expr.children[0].parse() : null;
+        const left_parsed = left_expr.parse();
+        const right_parsed = right_expr.parse();
         return { kind: "comparison", left: left_parsed, op: ">", right: right_parsed } as ast.ComparisonCond;
     },
     Comparison_lt(left_expr: any, lt, right_expr: any) {
-        const left_parsed = left_expr.children.length > 0 ? left_expr.children[0].parse() : null;
-        const right_parsed = right_expr.children.length > 0 ? right_expr.children[0].parse() : null;
+        const left_parsed = left_expr.parse();
+        const right_parsed = right_expr.parse();
         return { kind: "comparison", left: left_parsed, op: "<", right: right_parsed } as ast.ComparisonCond;
     },
 
@@ -496,9 +505,9 @@ export const getFunnyAst = {
     ImplyPred(first, arrows, rest: any) {
         const left = first.parse();
 
-        if (rest && rest.children && rest.children.length > 0) {
-            const rightNode = rest.children ? rest.children[0].children[1] : null;
-            const right = rightNode.parse();
+        if (arrows.sourceString === "->") {
+            const right = rest.children[0].children[1].parse();
+            console.log("right", right);
 
             // A -> B === (!A) || B
             const notA = { kind: "not", predicate: left };
