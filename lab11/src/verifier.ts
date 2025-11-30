@@ -788,13 +788,17 @@ function convertQuantifierToZ3(
     // новая переменная для квантора
     const varName = quantifier.varName;
     let varExpr: Arith;
-    
-    if (quantifier.varType === "int") {
+
+    const varType = quantifier.varType;
+    if (varType === "int") {
         varExpr = z3.Int.const(varName);
-    } else {
+    } else if (varType === "int[]") {
         // todo
         console.log("в кванторах числовых массивов пока нема");
         throw new Error("в кванторах числовых массивов пока нема");
+    } else {
+        console.warn(`Неизвестный тип переменной в кванторе: ${varType}, используем int`);
+        varExpr = z3.Int.const(varName);
     }
 
     // + новое окружение С добавленной переменной 

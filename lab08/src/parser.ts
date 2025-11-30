@@ -603,7 +603,7 @@ export const getFunnyAst = {
             kind: "quantifier", 
             quant: quant.sourceString, 
             varName: paramAst.name, 
-            varType: param.type, 
+            varType: paramAst.varType, 
             body: body.parse()
         } as ast.Quantifier;
     },
