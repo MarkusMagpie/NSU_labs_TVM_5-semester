@@ -354,7 +354,7 @@ const getFunnierAst = {
         // : [];
         // 3
         let preopt_ast: Predicate[] | null = null;
-        if (postopt) {
+        if (preopt) {
             const resolved = resolvePredicate(preopt);
             if (resolved) preopt_ast = [resolved];
         }
