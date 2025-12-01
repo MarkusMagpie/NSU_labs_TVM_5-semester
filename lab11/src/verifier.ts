@@ -136,11 +136,9 @@ function buildEnvironment(func: AnnotatedFunctionDef, z3: Context): Map<string, 
         if (param.varType === "int") {
             environment.set(param.name, z3.Int.const(param.name));
         } else if (param.varType === "int[]") {
-            // console.log("int[] не сделал");
-            // throw new Error("int[] не сделал");
-            // environment.set(param.name, z3.Int.const(param.name));
-            // Z3 константа для массива
-            environment.set(param.name, z3.Int.const(param.name + "_array"));
+            console.log("int[] не сделал");
+            throw new Error("int[] не сделал");
+            // environment.set(param.name, z3.Int.const(param.name + "_array"));
         }
     }
 
@@ -149,9 +147,9 @@ function buildEnvironment(func: AnnotatedFunctionDef, z3: Context): Map<string, 
         if (ret.varType === "int") {
             environment.set(ret.name, z3.Int.const(ret.name));
         } else if (ret.varType === "int[]") {
-            // console.log("int[] не сделал");
-            // throw new Error("int[] не сделал");
-            environment.set(ret.name, z3.Int.const(ret.name + "_array"));
+            console.log("int[] не сделал");
+            throw new Error("int[] не сделал");
+            // environment.set(ret.name, z3.Int.const(ret.name + "_array"));
         }
     }
 
@@ -160,9 +158,9 @@ function buildEnvironment(func: AnnotatedFunctionDef, z3: Context): Map<string, 
         if (local.varType === "int") {
             environment.set(local.name, z3.Int.const(local.name));
         } else if (local.varType === "int[]") {
-            // console.log("int[] не сделал");
-            // throw new Error("int[] не сделал");
-            environment.set(local.name, z3.Int.const(local.name + "_array"));
+            console.log("int[] не сделал");
+            throw new Error("int[] не сделал");
+            // environment.set(local.name, z3.Int.const(local.name + "_array"));
         }
     }
 
@@ -235,63 +233,99 @@ function computeWP(
     // z3: Context
     module: AnnotatedModule
 ): Predicate {
+    let wp: Predicate;
+
     switch (statement.type) {
         case "assign": 
-            return computeWPAssignment(statement as AssignStmt, postcondition);
+            wp = computeWPAssignment(statement as AssignStmt, postcondition);
+            break;
         case "block":
-            return computeWPBlock(statement as BlockStmt, postcondition, module);
+            wp = computeWPBlock(statement as BlockStmt, postcondition, module);
+            break;
         case "if":
-            return computeWPIf(statement as ConditionalStmt, postcondition, module);
+            wp = computeWPIf(statement as ConditionalStmt, postcondition, module);
+            break;
         case "while":
-            return computeWPWhile(statement as WhileStmt, postcondition, module);
+            wp = computeWPWhile(statement as WhileStmt, postcondition, module);
+            break;
         case "funccallstmt":
             // 1) вызов как оператора rev(a,b,n-2) не возвращает ничего -> не изменяет wp
             // 2) вызов как выражения (в правой части присваивания) - возвращает значение и влияет на weakest precondition через подстановку
             
             // 1) 
-            // return postcondition;
-
-            // 2)
-            // statement: { type: "funccallstmt", call: { type: "funccall", name, args } }
-            const callStmt: any = statement as FunctionCallStmt;
-            const call = callStmt.call as FuncCallExpr;
-
-            const calleeSpec = findFunctionSpec(call.name, module);
-            if (!calleeSpec || !calleeSpec.postcondition) {
-                return postcondition;
-            }
-
-            // комбинация постусловий
-            let instantiated = combinePredicates(calleeSpec.postcondition);
-
-            // подставим формальные параметры -> реальные аргументы
-            for (let i = 0; i < calleeSpec.parameters.length && i < (call.args?.length || 0); ++i) {
-                const formal = calleeSpec.parameters[i];
-                const actual = call.args[i];
-
-                if (formal.varType === "int") {
-                    // подстановка скалярного параметра в instantiated постусловия
-                    instantiated = substituteInPredicate(instantiated, formal.name, actual);
-                } else if (formal.varType === "int[]") {
-                    // простая политика для массивов:
-                    // если actual — простая переменная с тем же именем, ничего не делаем,
-                    // иначе — не пытаемся сложную подстановку (можно расширить при необходимости).
-                    if (actual.type === "var" && actual.name === formal.name) {
-                        // ok
-                    } else {
-                        console.log(`funccallstmt: не инстанцирован формальный массив ${formal.name} сложным аргументом`);
-                    }
-                }
-            }
-
-            return {
-                kind: "and",
-                left: instantiated,
-                right: postcondition
-            } as Predicate;
+            wp = postcondition;
+            break;
         default:
             console.log(`неизвестный оператор: ${(statement as any).type}`);
             throw new Error(`неизвестный оператор: ${(statement as any).type}`);
+    }
+
+    return simplifyPredicate(wp);
+}
+
+function simplifyPredicate(predicate: Predicate): Predicate {
+    switch (predicate.kind) {
+        case "and":
+            const left = simplifyPredicate((predicate as AndPred).left);
+            const right = simplifyPredicate((predicate as AndPred).right);
+            // true && P => P
+            if (left.kind === "true") return right;
+            if (right.kind === "true") return left;
+            // false && P => false
+            if (left.kind === "false" || right.kind === "false") return { kind: "false" };
+            
+            return { kind: "and", left, right };
+        case "or":
+            const leftOr = simplifyPredicate((predicate as OrPred).left);
+            const rightOr = simplifyPredicate((predicate as OrPred).right);
+            // true || P => true
+            if (leftOr.kind === "true" || rightOr.kind === "true") 
+                return { kind: "true" };
+            // false || P => P
+            if (leftOr.kind === "false") return rightOr;
+            if (rightOr.kind === "false") return leftOr;
+            
+            return { kind: "or", left: leftOr, right: rightOr };
+        case "comparison":
+            // тривиальные сравнения
+            const comp = predicate as ComparisonCond;
+            if (comp.left.type === "num" && comp.right.type === "num") {
+                const leftVal = (comp.left as any).value;
+                const rightVal = (comp.right as any).value;
+                let result: boolean;
+                
+                switch (comp.op) {
+                    case "==": result = leftVal === rightVal; break;
+                    case "!=": result = leftVal !== rightVal; break;
+                    case ">": result = leftVal > rightVal; break;
+                    case "<": result = leftVal < rightVal; break;
+                    case ">=": result = leftVal >= rightVal; break;
+                    case "<=": result = leftVal <= rightVal; break;
+                    default: return predicate;
+                }
+                return result ? { kind: "true" } : { kind: "false" };
+            }
+            
+            // x == x => true
+            if (comp.op === "==" && areExprsEqual(comp.left, comp.right)) {
+                return { kind: "true" };
+            }
+            
+            return predicate;
+        case "not":
+            const inner = simplifyPredicate((predicate as NotPred).predicate);
+            // !!P => P
+            if (inner.kind === "not") return (inner as NotPred).predicate;
+            // !true => false, !false => true
+            if (inner.kind === "true") return { kind: "false" };
+            if (inner.kind === "false") return { kind: "true" };
+            return { kind: "not", predicate: inner };
+        case "paren":
+            const inner2 = simplifyPredicate((predicate as ParenPred).inner);
+            // если внутреннее стало true/false - возвращаю его, иначе - paren(inner)
+            return inner2.kind === "paren" ? inner2 : inner2;
+        default:
+            return predicate;
     }
 }
 
@@ -421,7 +455,7 @@ function substituteArrayAccessInExpr(
     arrayAccess: ArrAccessExpr, 
     substitution: Expr
 ): Expr {
-    // Проверяем, является ли текущее выражение доступом к тому же массиву и с тем же индексом
+    // является ли текущее выражение доступом к тому же массиву и с тем же индексом?
     if (expr.type === "arraccess" && 
         expr.name === arrayAccess.name && 
         areExprsEqual(expr.index, arrayAccess.index)) {
@@ -907,32 +941,23 @@ function convertExprToZ3(
             
             return funcResult;
         case "arraccess":
-            const arrayName = expr.name;
+            const arrayName = expr.name; // arr[i] -> "arr"
+            // конвертация индекса массива в Z3
+            const index = convertExprToZ3(expr.index, env, z3, module, solver);
 
-            const arrayVar = env.get(arrayName + "_array") || env.get(arrayName);
-            if (!arrayVar) {
-                throw new Error(`неизвестный массив: ${arrayName}`);
+            // переменная для элемента массива (arr[5] -> "arr_elem_5")
+            const indexKey = generateIndexKey(expr.index);
+            const elemVarName = `${arrayName}_elem_${indexKey}`;
+            
+            // не создавали ли уже такую? если да, то возвращаю
+            if (env.has(elemVarName)) {
+                return env.get(elemVarName)!;
             }
-
-            return arrayVar;
             
-            // // отдельные переменныме для каждого элемента
-            // // конвертация индекса массива в Z3
-            // const index = convertExprToZ3(expr.index, env, z3, module, solver);
-
-            // // переменная для элемента массива (arr[5] -> "arr_elem_5")
-            // const indexKey = generateIndexKey(expr.index);
-            // const elemVarName = `${arrayName}_elem_${indexKey}`;
-            
-            // // не создавали ли уже такую? если да, то возвращаю
-            // if (env.has(elemVarName)) {
-            //     return env.get(elemVarName)!;
-            // }
-            
-            // // новая Z3 переменная для элемента массива
-            // const elemVar = z3.Int.const(elemVarName);
-            // env.set(elemVarName, elemVar);
-            // return elemVar;
+            // новая Z3 переменная для элемента массива
+            const elemVar = z3.Int.const(elemVarName);
+            env.set(elemVarName, elemVar);
+            return elemVar;
         default:
             console.log(`неизвестный expression type: ${(expr as any).type}`);
             throw new Error(`неизвестный expression type: ${(expr as any).type}`);
@@ -941,6 +966,49 @@ function convertExprToZ3(
 
 function findFunctionSpec(funcName: string, module: AnnotatedModule): AnnotatedFunctionDef | null {
     return module.functions.find(f => f.name === funcName) || null;
+}
+
+// поиск внутри Expr вызова функции с именем name
+function exprContainsCall(expr: Expr | null, name: string): boolean {
+    if (!expr) return false;
+    switch (expr.type) {
+        case "num": return false;
+        case "var": return false;
+        case "neg": return exprContainsCall(expr.arg, name);
+        case "bin":
+            return exprContainsCall(expr.left, name) || exprContainsCall(expr.right, name);
+        case "funccall":
+            if (expr.name === name) return true;
+            return expr.args.some(a => exprContainsCall(a, name));
+        case "arraccess":
+            return exprContainsCall(expr.index, name);
+        default: return false;
+    }
+}
+
+// поиск внутри Predicate вызова функции с именем name
+function predicateContainsCall(pred: Predicate | null, name: string): boolean {
+    if (!pred) return false;
+    switch (pred.kind) {
+        case "true": return false;
+        case "false": return false;
+        case "comparison":
+            return exprContainsCall((pred as ComparisonCond).left, name)
+                || exprContainsCall((pred as ComparisonCond).right, name);
+        case "and":
+        case "or":
+            return predicateContainsCall((pred as any).left, name) 
+            || predicateContainsCall((pred as any).right, name);
+        case "not":
+            return predicateContainsCall((pred as NotPred).predicate, name);
+        case "paren":
+            return predicateContainsCall((pred as ParenPred).inner, name);
+        case "quantifier":
+            return predicateContainsCall((pred as Quantifier).body, name);
+        case "implies":
+            return predicateContainsCall((pred as any).left, name) || predicateContainsCall((pred as any).right, name);
+        default: return false;
+    }
 }
 
 // добавление аксиомы на основе постусловия функции
@@ -959,27 +1027,26 @@ function addFunctionAxioms(
         return; 
     }
 
+    // рекурсия -> НЕ добавлять аксиому
+    const combinedPost = combinePredicates(funcSpec.postcondition);
+    if (predicateContainsCall(combinedPost, funcName)) {
+        console.log(`функция ${funcName} рекурсивная -> пропускаю добавление аксиом`);
+        return;
+    }
+
     // временное окружение для параметров функции
     const funcEnv = new Map<string, Arith>();
     
     // формальные параметры
     funcSpec.parameters.forEach((param, index) => {
-        if (param.varType === "int[]") {
-            // для массивов спец имена
-            funcEnv.set(param.name, env.get(param.name + "_array") || args[index]);
-        } else {
+        if (index < args.length) {
             funcEnv.set(param.name, args[index]);
         }
     });
     
     // возвращаемое значение
     if (funcSpec.returns.length === 1) {
-        const ret = funcSpec.returns[0];
-        if (ret.varType === "int[]") {
-            funcEnv.set(ret.name, env.get(ret.name + "_array") || result);
-        } else {
-            funcEnv.set(ret.name, result);
-        }
+        funcEnv.set(funcSpec.returns[0].name, result);
     }
     
     // компбинация постусловий (если их несколько)
