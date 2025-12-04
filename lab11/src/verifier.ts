@@ -287,13 +287,15 @@ function simplifyPredicate(predicate: Predicate): Predicate {
             
             return { kind: "or", left: leftOr, right: rightOr };
         case "comparison":
-            // тривиальные сравнения
             const comp = predicate as ComparisonCond;
-            if (comp.left.type === "num" && comp.right.type === "num") {
-                const leftVal = (comp.left as any).value;
-                const rightVal = (comp.right as any).value;
+            const leftExpr = simplifyExpr(comp.left);
+            const rightExpr = simplifyExpr(comp.right);
+
+            // упрощение числовых сравнений
+            if (leftExpr.type === "num" && rightExpr.type === "num") {
+                const leftVal = leftExpr.value;
+                const rightVal = rightExpr.value;
                 let result: boolean;
-                
                 switch (comp.op) {
                     case "==": result = leftVal === rightVal; break;
                     case "!=": result = leftVal !== rightVal; break;
@@ -301,17 +303,20 @@ function simplifyPredicate(predicate: Predicate): Predicate {
                     case "<": result = leftVal < rightVal; break;
                     case ">=": result = leftVal >= rightVal; break;
                     case "<=": result = leftVal <= rightVal; break;
-                    default: return predicate;
+                    default: return { ...comp, left: leftExpr, right: rightExpr };
                 }
                 return result ? { kind: "true" } : { kind: "false" };
             }
-            
             // x == x => true
-            if (comp.op === "==" && areExprsEqual(comp.left, comp.right)) {
+            if (comp.op === "==" && areExprsEqual(leftExpr, rightExpr)) {
                 return { kind: "true" };
             }
-            
-            return predicate;
+            // x != x => false
+            if (comp.op === "!=" && areExprsEqual(leftExpr, rightExpr)) {
+                return { kind: "false" };
+            }
+
+            return { ...comp, left: leftExpr, right: rightExpr };
         case "not":
             const inner = simplifyPredicate((predicate as NotPred).predicate);
             // !!P => P
@@ -321,11 +326,103 @@ function simplifyPredicate(predicate: Predicate): Predicate {
             if (inner.kind === "false") return { kind: "true" };
             return { kind: "not", predicate: inner };
         case "paren":
-            const inner2 = simplifyPredicate((predicate as ParenPred).inner);
-            // если внутреннее стало true/false - возвращаю его, иначе - paren(inner)
-            return inner2.kind === "paren" ? inner2 : inner2;
+            const innerParen = simplifyPredicate((predicate as ParenPred).inner);
+            return innerParen;
+        case "implies":
+            const leftImpl = simplifyPredicate((predicate as any).left);
+            const rightImpl = simplifyPredicate((predicate as any).right);
+            // true => P => P
+            if (leftImpl.kind === "true") return rightImpl;
+            // false => P => true
+            if (leftImpl.kind === "false") return { kind: "true" };
+            // P => true => true
+            if (rightImpl.kind === "true") return { kind: "true" };
+
+            return { kind: "implies", left: leftImpl, right: rightImpl };            
         default:
             return predicate;
+    }
+}
+
+function simplifyExpr(expr: Expr): Expr {
+    switch (expr.type) {
+        case "num": 
+            return expr;
+        case "var": 
+            return expr;
+        case "neg": {
+            const arg = simplifyExpr(expr.arg);
+            if (arg.type === "num") {
+                return { type: "num", value: -arg.value };
+            }
+            return { type: "neg", arg } as Expr;
+        }
+        case "bin": {
+            const left = simplifyExpr(expr.left);
+            const right = simplifyExpr(expr.right);
+            
+            // упрощение числовых операций
+            if (left.type === "num" && right.type === "num") {
+                const leftVal = left.value;
+                const rightVal = right.value;
+                switch (expr.operation) {
+                    case "+": return { type: "num", value: leftVal + rightVal };
+                    case "-": return { type: "num", value: leftVal - rightVal };
+                    case "*": return { type: "num", value: leftVal * rightVal };
+                    case "/": 
+                        if (rightVal !== 0) return {type: "num", value: Math.floor(leftVal / rightVal)} as Expr;
+                        return { type: "bin", operation: "/", left, right } as Expr;
+                    default: return { type: "bin", operation: expr.operation, left, right };
+                }
+            }
+            
+            // алгебраические упрощения
+            if (expr.operation === "+") {
+                // 0 + x => x
+                if (left.type === "num" && left.value === 0) return right;
+                // x + 0 => x
+                if (right.type === "num" && right.value === 0) return left;
+            }
+            
+            if (expr.operation === "-") {
+                // x - 0 => x
+                if (right.type === "num" && right.value === 0) return left;
+                // x - x => 0
+                if (areExprsEqual(left, right)) return { type: "num", value: 0 };
+            }
+            
+            if (expr.operation === "*") {
+                // 0 * x => 0, x * 0 => 0
+                if ((left.type === "num" && left.value === 0) || 
+                    (right.type === "num" && right.value === 0)) {
+                    return { type: "num", value: 0 };
+                }
+                // 1 * x => x, x * 1 => x
+                if (left.type === "num" && left.value === 1) return right;
+                if (right.type === "num" && right.value === 1) return left;
+            }
+            
+            return { type: "bin", operation: expr.operation, left, right } as Expr;
+        }
+        case "funccall": {
+            const args = expr.args.map(arg => simplifyExpr(arg));
+            
+            // НОВОЕ: упрощение вызовов factorial с константными аргументами
+            if (expr.name === "factorial" && args.length === 1 && args[0].type === "num") {
+                const n = args[0].value;
+                if (n === 0) return { type: "num", value: 1 };
+                if (n === 1) return { type: "num", value: 1 };
+                // для других константных значений можно тоже вычислить факториал но пох
+            }
+            
+            return { type: "funccall", name: expr.name, args };
+        }
+        case "arraccess": {
+            const index = simplifyExpr(expr.index);
+            return { type: "arraccess", name: expr.name, index };
+        }
+        default:
+            return expr;
     }
 }
 
@@ -754,31 +851,33 @@ function computeWPWhile(whileStmt: WhileStmt, postcondition: Predicate, module: 
 
     const invariant = whileStmt.invariant;
     const condition = convertConditionToPredicate(whileStmt.condition);
-
     const bodyWP = computeWP(whileStmt.body, invariant, module);
-
-    const implies = (left: Predicate, right: Predicate): Predicate => ({
-        kind: "or",
-        left: { kind: "not", predicate: left },
-        right,
-    });
-
-    const invAndCond: Predicate = { kind: "and", left: invariant, right: condition };
-    const invAndNotCond: Predicate = {
-        kind: "and",
-        left: invariant,
-        right: { kind: "not", predicate: condition },
-    };
 
     return {
         kind: "and",
         left: invariant,
         right: {
             kind: "and",
-            left: implies(invAndCond, bodyWP),
-            right: implies(invAndNotCond, postcondition),
-        },
-    } as Predicate;
+            left: {
+                kind: "implies",
+                left: {
+                    kind: "and",
+                    left: invariant,
+                    right: condition
+                },
+                right: bodyWP
+            },
+            right: {
+                kind: "implies",
+                left: {
+                    kind: "and",
+                    left: invariant,
+                    right: { kind: "not", predicate: condition }
+                },
+                right: postcondition
+            }
+        }
+    };
 }
 
 // --- конвертация в Z3 ---
