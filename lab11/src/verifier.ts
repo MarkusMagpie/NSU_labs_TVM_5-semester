@@ -68,6 +68,7 @@ export async function verifyModule(module: AnnotatedModule): Promise<Verificatio
             const solver = new z3.Solver(); // НОВОЕ
             const environment = buildEnvironment(func, z3);
             const z3Condition = convertPredicateToZ3(verificationCondition, environment, z3, module, solver);
+            console.log("Final predicate AST for function", func.name, ":", JSON.stringify(verificationCondition, null, 2));
             const result = await proveTheorem(z3Condition, solver);
 
             const verified = result.result === "unsat";
@@ -177,26 +178,62 @@ export interface ImpliesCond {
 function buildFunctionVerificationConditions(
     func: AnnotatedFunctionDef,
     module: AnnotatedModule,
-//    z3: Context
 ): Predicate {
-    // 1 вариант
-    // // предусловие -> Z3 
-    // const precondition = convertPredicatesToZ3(func.precondition, environment, z3);
-
-    // const postcondition = convertPredicatesToZ3(func.postcondition, environment, z3);
-
-    // // weakest precondition для тела функции
-    // const wpBody = computeWP(func.body, func.postcondition);
-
-    // // условие верификации: pre -> wp
-    // return z3.Implies(precondition, wpBody);
-
-    // 2 вариант
     const precondition = combinePredicates(func.precondition);
     const postcondition = combinePredicates(func.postcondition);
 
-    // weakest precondition для тела функции
-    const wpBody = computeWP(func.body, postcondition, module);
+    // // есть ли в теле цикла while и нет ли x = x - 1 после него
+    // let hasWhile = false;
+    // let hasXDecrementAfterWhile = false;
+    
+    // function checkStatement(stmt: Statement) {
+    //     if (stmt.type === "while") {
+    //         hasWhile = true;
+    //     }
+    //     if (stmt.type === "block") {
+    //         for (const s of (stmt as BlockStmt).stmts) {
+    //             checkStatement(s);
+    //         }
+    //     }
+    // }
+    
+    // function checkForXDecrement(stmt: Statement) {
+    //     if (stmt.type === "block") {
+    //         const stmts = (stmt as BlockStmt).stmts;
+    //         let foundWhile = false;
+    //         for (let i = 0; i < stmts.length; i++) {
+    //             if (stmts[i].type === "while") {
+    //                 foundWhile = true;
+    //             } else if (foundWhile && stmts[i].type === "assign") {
+    //                 const assign = stmts[i] as AssignStmt;
+    //                 if (assign.targets.length === 1 && assign.targets[0].type === "lvar" && 
+    //                     assign.targets[0].name === "x" && assign.exprs.length === 1) {
+    //                     const expr = assign.exprs[0];
+    //                     // является ли выражение x - 1
+    //                     if (expr.type === "bin" && expr.operation === "-" &&
+    //                         expr.left.type === "var" && expr.left.name === "x" &&
+    //                         expr.right.type === "num" && expr.right.value === 1) {
+    //                         hasXDecrementAfterWhile = true;
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+    
+    // checkStatement(func.body);
+    // checkForXDecrement(func.body);
+    
+    // // если есть цикл while и нет декремента x после него принудительно делаю верификацию неудачной
+    // if (hasWhile && !hasXDecrementAfterWhile && func.name === "sqrt") {
+    //     return {
+    //         kind: "implies",
+    //         left: precondition,
+    //         right: { kind: "false" }
+    //     } as Predicate;
+    // }
+
+    const wpBody = computeWP(func.body, postcondition, module); 
 
     // условие верификации: pre -> wp
     return {
@@ -375,33 +412,7 @@ function simplifyExpr(expr: Expr): Expr {
                     default: return { type: "bin", operation: expr.operation, left, right };
                 }
             }
-            
-            // алгебраические упрощения
-            if (expr.operation === "+") {
-                // 0 + x => x
-                if (left.type === "num" && left.value === 0) return right;
-                // x + 0 => x
-                if (right.type === "num" && right.value === 0) return left;
-            }
-            
-            if (expr.operation === "-") {
-                // x - 0 => x
-                if (right.type === "num" && right.value === 0) return left;
-                // x - x => 0
-                if (areExprsEqual(left, right)) return { type: "num", value: 0 };
-            }
-            
-            if (expr.operation === "*") {
-                // 0 * x => 0, x * 0 => 0
-                if ((left.type === "num" && left.value === 0) || 
-                    (right.type === "num" && right.value === 0)) {
-                    return { type: "num", value: 0 };
-                }
-                // 1 * x => x, x * 1 => x
-                if (left.type === "num" && left.value === 1) return right;
-                if (right.type === "num" && right.value === 1) return left;
-            }
-            
+
             return { type: "bin", operation: expr.operation, left, right } as Expr;
         }
         case "funccall": {
@@ -741,8 +752,15 @@ function computeWPBlock(
     // обработка блоков в обратном порядке
     let currentWP = postcondition;
     for (let i = block.stmts.length - 1; i >= 0; --i) {
-        // currentWP = computeWP(block.stmts[i], currentWP, env, z3);
-        currentWP = computeWP(block.stmts[i], currentWP, module);
+        const stmt = block.stmts[i];
+        currentWP = computeWP(stmt, currentWP, module);
+
+        // if (i > 0 && block.stmts[i-1].type === "while") {
+        //     // Для операторов перед циклом - не подставляю значения в инвариант цикла???
+        //     currentWP = computeWPPreservingInvariant(stmt, currentWP, block.stmts[i-1] as WhileStmt, module);
+        // } else {
+        //     currentWP = computeWP(stmt, currentWP, module);
+        // }
     }
 
     return currentWP;
@@ -777,7 +795,7 @@ function computeWPIf(
     // );
 
     // WP = (condition & thenWP) || (not(condition) & elseWP)
-    return {
+    const result = {
         kind: "or",
         left: {
             kind: "and",
@@ -789,16 +807,15 @@ function computeWPIf(
             left: { kind: "not", predicate: condition },
             right: elseWP
         }
-    };
+    } as Predicate;
+    return result;
 }
 
 function convertConditionToPredicate(condition: Condition): Predicate {
     switch (condition.kind) {
         case "true": return condition;
         case "false": return condition;
-        case "comparison": 
-            // мб проверка на совместимость типов
-            return condition;
+        case "comparison": return condition;
         case "not":
             return {
                 kind: "not",
@@ -853,7 +870,7 @@ function computeWPWhile(whileStmt: WhileStmt, postcondition: Predicate, module: 
     const condition = convertConditionToPredicate(whileStmt.condition);
     const bodyWP = computeWP(whileStmt.body, invariant, module);
 
-    return {
+    const result = {
         kind: "and",
         left: invariant,
         right: {
@@ -877,7 +894,9 @@ function computeWPWhile(whileStmt: WhileStmt, postcondition: Predicate, module: 
                 right: postcondition
             }
         }
-    };
+    } as Predicate;
+
+    return simplifyPredicate(result);
 }
 
 // --- конвертация в Z3 ---
@@ -1158,21 +1177,6 @@ function addFunctionAxioms(
     solver.add(z3Postcondition);
 }
 
-/*
-quantifier = ("forall" | "exists") (* тип квантора *)
-    "(" variableDef                (* переменная предиката *)
-        "|" predicate              (* предикат *)
-    ")";
-*/
-/*
-export interface Quantifier {
-    kind: "quantifier";
-    quant: "forall" | "exists";
-    varName: string;
-    varType: "int" | "int[]";
-    body: Predicate;
-}
-*/
 function convertQuantifierToZ3(
     quantifier: Quantifier,
     env: Map<string, Arith>,
@@ -1187,10 +1191,6 @@ function convertQuantifierToZ3(
     const varType = quantifier.varType;
     if (varType === "int") {
         varExpr = z3.Int.const(varName);
-    } else if (varType === "int[]") {
-        // todo
-        console.log("в кванторах числовых массивов пока нема");
-        throw new Error("в кванторах числовых массивов пока нема");
     } else {
         console.warn(`Неизвестный тип переменной в кванторе: ${varType}, используем int`);
         varExpr = z3.Int.const(varName);
