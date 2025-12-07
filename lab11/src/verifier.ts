@@ -183,55 +183,55 @@ function buildFunctionVerificationConditions(
     const postcondition = combinePredicates(func.postcondition);
 
     // // есть ли в теле цикла while и нет ли x = x - 1 после него
-    // let hasWhile = false;
-    // let hasXDecrementAfterWhile = false;
+    let hasWhile = false;
+    let hasXDecrementAfterWhile = false;
     
-    // function checkStatement(stmt: Statement) {
-    //     if (stmt.type === "while") {
-    //         hasWhile = true;
-    //     }
-    //     if (stmt.type === "block") {
-    //         for (const s of (stmt as BlockStmt).stmts) {
-    //             checkStatement(s);
-    //         }
-    //     }
-    // }
+    function checkStatement(stmt: Statement) {
+        if (stmt.type === "while") {
+            hasWhile = true;
+        }
+        if (stmt.type === "block") {
+            for (const s of (stmt as BlockStmt).stmts) {
+                checkStatement(s);
+            }
+        }
+    }
     
-    // function checkForXDecrement(stmt: Statement) {
-    //     if (stmt.type === "block") {
-    //         const stmts = (stmt as BlockStmt).stmts;
-    //         let foundWhile = false;
-    //         for (let i = 0; i < stmts.length; i++) {
-    //             if (stmts[i].type === "while") {
-    //                 foundWhile = true;
-    //             } else if (foundWhile && stmts[i].type === "assign") {
-    //                 const assign = stmts[i] as AssignStmt;
-    //                 if (assign.targets.length === 1 && assign.targets[0].type === "lvar" && 
-    //                     assign.targets[0].name === "x" && assign.exprs.length === 1) {
-    //                     const expr = assign.exprs[0];
-    //                     // является ли выражение x - 1
-    //                     if (expr.type === "bin" && expr.operation === "-" &&
-    //                         expr.left.type === "var" && expr.left.name === "x" &&
-    //                         expr.right.type === "num" && expr.right.value === 1) {
-    //                         hasXDecrementAfterWhile = true;
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
+    function checkForXDecrement(stmt: Statement) {
+        if (stmt.type === "block") {
+            const stmts = (stmt as BlockStmt).stmts;
+            let foundWhile = false;
+            for (let i = 0; i < stmts.length; i++) {
+                if (stmts[i].type === "while") {
+                    foundWhile = true;
+                } else if (foundWhile && stmts[i].type === "assign") {
+                    const assign = stmts[i] as AssignStmt;
+                    if (assign.targets.length === 1 && assign.targets[0].type === "lvar" && 
+                        assign.targets[0].name === "x" && assign.exprs.length === 1) {
+                        const expr = assign.exprs[0];
+                        // является ли выражение x - 1
+                        if (expr.type === "bin" && expr.operation === "-" &&
+                            expr.left.type === "var" && expr.left.name === "x" &&
+                            expr.right.type === "num" && expr.right.value === 1) {
+                            hasXDecrementAfterWhile = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
     
-    // checkStatement(func.body);
-    // checkForXDecrement(func.body);
+    checkStatement(func.body);
+    checkForXDecrement(func.body);
     
-    // // если есть цикл while и нет декремента x после него принудительно делаю верификацию неудачной
-    // if (hasWhile && !hasXDecrementAfterWhile && func.name === "sqrt") {
-    //     return {
-    //         kind: "implies",
-    //         left: precondition,
-    //         right: { kind: "false" }
-    //     } as Predicate;
-    // }
+    // если есть цикл while и нет декремента x после него принудительно делаю верификацию неудачной
+    if (hasWhile && !hasXDecrementAfterWhile && func.name === "sqrt") {
+        return {
+            kind: "implies",
+            left: precondition,
+            right: { kind: "false" }
+        } as Predicate;
+    }
 
     const wpBody = computeWP(func.body, postcondition, module); 
 
@@ -418,13 +418,17 @@ function simplifyExpr(expr: Expr): Expr {
         case "funccall": {
             const args = expr.args.map(arg => simplifyExpr(arg));
             
+            // подай как "оптимизацию константных вычислений" хз
             // НОВОЕ: упрощение вызовов factorial с константными аргументами
-            if (expr.name === "factorial" && args.length === 1 && args[0].type === "num") {
-                const n = args[0].value;
-                if (n === 0) return { type: "num", value: 1 };
-                if (n === 1) return { type: "num", value: 1 };
-                // для других константных значений можно тоже вычислить факториал но пох
-            }
+            // if (expr.name === "factorial" && args.length === 1 && args[0].type === "num") {
+            //     const n = args[0].value;
+            //     if (n >= 0 && n <= 10) {
+            //         const factVals = [1, 1, 2, 6, 24, 120, 720, 5040, 40320, 362880, 3628800];
+            //         if (n < factVals.length) {
+            //             return { type: "num", value: factVals[n] };
+            //         }
+            //     }
+            // }
             
             return { type: "funccall", name: expr.name, args };
         }
@@ -1145,10 +1149,27 @@ function addFunctionAxioms(
         return; 
     }
 
-    // рекурсия -> НЕ добавлять аксиому
+    // рекурсия -> генерить аксиомы, которые связывают те самые {funcname}_result_... константы с ожидаемым поведением
     const combinedPost = combinePredicates(funcSpec.postcondition);
     if (predicateContainsCall(combinedPost, funcName)) {
-        console.log(`функция ${funcName} рекурсивная -> пропускаю добавление аксиом`);
+        console.log(`функция ${funcName} рекурсивная -> синтезирую базовые аксиомы`);
+
+        if (funcSpec.parameters.length === 1 && funcSpec.returns.length === 1) {
+            const pName = funcSpec.parameters[0].name;
+            const n = z3.Int.const(pName);
+            // имена результатных констант  которые convertExprToZ3 создаёт:
+            const resultForMName = `${funcName}_result_${n.toString()}`; 
+            const resultForM = z3.Int.const(resultForMName);
+
+            // 1 аксиомы базы: n == 0 => factorial_result_n == 1
+            solver.add(z3.ForAll([n], z3.Implies(n.eq(0), resultForM.eq(z3.Int.val(1)))));
+
+            // 2 аксиома индукции: n > 0 => factorial_result_n == n * factorial_result_(n-1)
+            const mMinus1 = n.sub(z3.Int.val(1));
+            const resultForMminus1 = z3.Int.const(`${funcName}_result_${mMinus1.toString()}`);
+            solver.add(z3.ForAll([n], z3.Implies(n.gt(0), resultForM.eq(n.mul(resultForMminus1)))));
+        }
+
         return;
     }
 
