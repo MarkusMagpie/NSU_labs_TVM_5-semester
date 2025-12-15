@@ -44,7 +44,12 @@ export interface VerificationResult {
     function: string;
     verified: boolean;
     error?: string;
-    model?: Model;
+    errorDetails?: {
+        location?: string; // "precondition", "postcondition", "invariant", "loop condition"
+        condition?: string; // некое текстовое представление условия
+        counterexample?: Record<string, any>; // значения переменных
+        model?: Model;
+    };
 }
 
 let z3: Context;
@@ -68,22 +73,35 @@ export async function verifyModule(module: AnnotatedModule): Promise<Verificatio
             const solver = new z3.Solver(); // НОВОЕ
             const environment = buildEnvironment(func, z3);
             const z3Condition = convertPredicateToZ3(verificationCondition, environment, z3, module, solver);
-            console.log("Final predicate AST for function", func.name, ":", JSON.stringify(verificationCondition, null, 2));
-            const result = await proveTheorem(z3Condition, solver);
 
+            console.log("Final predicate AST for function", func.name, ":", JSON.stringify(verificationCondition, null, 2));
+            
+            const result = await proveTheorem(z3Condition, solver);
             const verified = result.result === "unsat";
 
-            results.push(
-                {
-                    function: func.name,
-                    verified,
-                    error: result.result === "sat" ? "теорема неверна, так как найден контрпример. Вернул модель, опровергающую теорему." : undefined,
-                    model: result.model
-                }
-            );
-
             if (!verified) {
+                const errorDetails = await analyzeVerificationError(
+                    func, 
+                    verificationCondition, 
+                    result.model, 
+                    environment,
+                    z3
+                );
+
+                console.log("DEBUG: Error details for", func.name, ":", errorDetails);
+                
+                results.push({
+                    function: func.name,
+                    verified: false,
+                    error: "Верификация не удалась",
+                    errorDetails
+                });
                 has_failure = true;
+            } else {
+                results.push({
+                    function: func.name,
+                    verified: true
+                });
             }
         } catch (error) {
             results.push(
@@ -97,12 +115,190 @@ export async function verifyModule(module: AnnotatedModule): Promise<Verificatio
         }
     }
 
+    // if (has_failure) {
+    //     const failedNames = results.filter(r => !r.verified).map(r => r.function).join(", ");
+    //     throw new Error(`Verification failed for: ${failedNames}`);
+    // }
     if (has_failure) {
-        const failedNames = results.filter(r => !r.verified).map(r => r.function).join(", ");
-        throw new Error(`Verification failed for: ${failedNames}`);
+        const errorMessages = results
+            .filter(r => !r.verified)
+            .map(r => {
+                if (r.errorDetails) {
+                    return `Функция ${r.function}: ${r.errorDetails.location} не выполняется. Условие: ${r.errorDetails.condition}`;
+                }
+                return `Функция ${r.function}: ${r.error}`;
+            })
+            .join("\n");
+        
+        throw new Error(`Verification failed:\n${errorMessages}`);
     }
 
     return results;
+}
+
+async function analyzeVerificationError(
+    func: AnnotatedFunctionDef,
+    verificationCondition: Predicate,
+    model: Model | undefined,
+    environment: Map<string, Arith>,
+    z3: Context
+): Promise<any> {
+    console.log("DEBUG: Starting analyzeVerificationError for function", func.name);
+
+    // извлечение значения переменных из модели
+    const variableValues: Record<string, any> = {};
+    
+    if (model) {
+        console.log("DEBUG: Model available");
+        for (const [name, z3Var] of environment.entries()) {
+            try {
+                const value = model.get(z3Var);
+                if (value !== undefined) {
+                    variableValues[name] = value.toString();
+                    console.log(`DEBUG: Variable ${name} = ${value.toString()}`);
+                }
+            } catch (e) {
+                // переменнаой нет в модели
+            }
+        }
+    } else {
+        console.log("DEBUG: No model available");
+    }
+    
+    // какая часть импликации не выполняется
+    if (verificationCondition.kind === "implies") {
+        const left = verificationCondition.left;  // предусловие
+        const right = verificationCondition.right; // weakest precondition
+
+        console.log("DEBUG: Left (precondition):", predicateToString(left));
+        console.log("DEBUG: Right (wp):", predicateToString(right));
+        
+        // выполняется ли предусловие?
+        const preconditionSat = await checkPredicateWithModel(left, variableValues, z3);
+        console.log("DEBUG: Precondition satisfied?", preconditionSat);
+        
+        if (!preconditionSat && model) {
+            console.log("DEBUG: Precondition failed");
+            return {
+                location: "precondition",
+                condition: predicateToString(left),
+                counterexample: variableValues,
+                model
+            };
+        } else {
+            if (right.kind === "false") {
+                return {
+                    location: "postcondition",
+                    condition: "постусловие не может быть выполнено (получено противоречивое условие)",
+                    counterexample: variableValues,
+                    model
+                };
+            }
+
+            // предусловие выполняется, но wp нет
+            // ищу конкретное нарушенное условие в wp
+            const violatedCondition = findViolatedCondition(right, variableValues);
+            console.log("DEBUG: Violated condition:", violatedCondition);
+            
+            return {
+                location: "postcondition",
+                condition: violatedCondition || predicateToString(right),
+                counterexample: variableValues,
+                model
+            };
+        }
+    }
+
+    console.log("DEBUG: Not an implies predicate");
+    
+    return {
+        location: "unknown",
+        condition: predicateToString(verificationCondition),
+        counterexample: variableValues,
+        model
+    };
+}
+
+// вспомогательная функция для поиска конкретного нарушенного условия
+function findViolatedCondition(predicate: Predicate, variableValues: Record<string, any>): string | null {
+    // рекурсивно ищу нарушенные условия
+    switch (predicate.kind) {
+        case "and":
+            // оба подусловия
+            const leftViolated = findViolatedCondition((predicate as AndPred).left, variableValues);
+            if (leftViolated) return leftViolated;
+            return findViolatedCondition((predicate as AndPred).right, variableValues);
+        case "or":
+            // если OR нарушено значит оба подусловия нарушены
+            const leftStr = predicateToString((predicate as OrPred).left);
+            const rightStr = predicateToString((predicate as OrPred).right);
+            return `${leftStr} и ${rightStr} не выполняется`;
+        case "comparison":
+            // можно было бы вычислить значения но это сложно
+            // пока так
+            return predicateToString(predicate);
+        case "implies":
+            // A->B - если она нарушена значит A истинно, B ложно
+            const left = (predicate as any).left;
+            const right = (predicate as any).right;
+            return `при условии ${predicateToString(left)} не выполняется ${predicateToString(right)}`;
+        default:
+            return predicateToString(predicate);
+    }
+}
+
+// для проверки предиката с конкретными значениями
+async function checkPredicateWithModel(
+    predicate: Predicate, 
+    variableValues: Record<string, any>,
+    z3: Context
+): Promise<boolean> {
+    try {
+        console.log("DEBUG: checkPredicateWithModel called for predicate:", predicateToString(predicate));
+        console.log("DEBUG: Variable values:", variableValues);
+
+        // временный солвер
+        const solver = new z3.Solver();
+        
+        // добавляю условия на переменные из variableValues
+        for (const [name, value] of Object.entries(variableValues)) {
+            const varExpr = z3.Int.const(name);
+            if (!isNaN(Number(value))) {
+                solver.add(varExpr.eq(z3.Int.val(Number(value))));
+            }
+        }
+        
+        // предикат -> Z3
+        const tempEnv = new Map<string, Arith>();
+        for (const name of Object.keys(variableValues)) {
+            tempEnv.set(name, z3.Int.const(name));
+        }
+        
+        // фиктивный модуль
+        const dummyModule: AnnotatedModule = {
+            functions: [],
+            formulas: [],
+            type: "module"
+        };
+        
+        const z3Predicate = convertPredicateToZ3(
+            predicate, 
+            tempEnv, 
+            z3, 
+            dummyModule, 
+            solver
+        );
+
+        console.log("DEBUG: Z3 predicate:", z3Predicate.toString());
+        
+        solver.add(z3Predicate);
+        const result = await solver.check();
+        
+        return result === "sat";
+    } catch (e) {
+        console.error("Error checking predicate with model:", e);
+        return false;
+    }
 }
 
 async function proveTheorem(
@@ -1227,5 +1423,62 @@ function convertQuantifierToZ3(
         return z3.ForAll([varExpr], body);
     } else {
         return z3.Exists([varExpr], body);
+    }
+}
+
+function exprToString(expr: Expr): string {
+    switch (expr.type) {
+        case "num": return expr.value.toString();
+        case "var": return expr.name;
+        case "neg": return `-${exprToString(expr.arg)}`;
+        case "bin": return `(${exprToString(expr.left)} ${expr.operation} ${exprToString(expr.right)})`;
+        case "funccall": return `${expr.name}(${expr.args.map(exprToString).join(", ")})`;
+        case "arraccess": return `${expr.name}[${exprToString(expr.index)}]`;
+        default: return "unknown";
+    }
+}
+
+function predicateToString(predicate: Predicate): string {
+    switch (predicate.kind) {
+        case "true": return "true";
+        case "false": return "false";
+        case "comparison": 
+            return `${exprToString(predicate.left)} ${predicate.op} ${exprToString(predicate.right)}`;
+        case "and": 
+            return `${predicateToString((predicate as AndPred).left)} and ${predicateToString((predicate as AndPred).right)}`;
+        case "or": 
+            return `${predicateToString((predicate as OrPred).left)} or ${predicateToString((predicate as OrPred).right)}`;
+        case "not": 
+            return `not ${predicateToString((predicate as NotPred).predicate)}`;
+        case "paren": 
+            return `(${predicateToString((predicate as ParenPred).inner)})`;
+        case "implies":
+            return `${predicateToString((predicate as any).left)} -> ${predicateToString((predicate as any).right)}`;
+        case "quantifier":
+            const q = predicate as Quantifier;
+            return `${q.quant} ${q.varName}: ${predicateToString(q.body)}`;
+        default:
+            return "unknown predicate";
+    }
+}
+
+function conditionToString(condition: Condition): string {
+    switch (condition.kind) {
+        case "true": return "true";
+        case "false": return "false";
+        case "comparison":
+            return `${exprToString(condition.left)} ${condition.op} ${exprToString(condition.right)}`;
+        case "not":
+            return `not ${conditionToString(condition.condition)}`;
+        case "and":
+            return `${conditionToString(condition.left)} and ${conditionToString(condition.right)}`;
+        case "or":
+            return `${conditionToString(condition.left)} or ${conditionToString(condition.right)}`;
+        case "implies":
+            return `${conditionToString(condition.left)} -> ${conditionToString(condition.right)}`;
+        case "paren":
+            return `(${conditionToString(condition.inner)})`;
+        default:
+            return "unknown condition";
     }
 }
