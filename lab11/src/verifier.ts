@@ -65,7 +65,10 @@ function readLocFromAny(obj: any): SourceLoc | undefined {
 
     if (obj.loc && typeof obj.loc === "object") {
         const l = obj.loc;
-        if (typeof l.startLine === "number" && typeof l.startCol === "number") return l as SourceLoc;
+        if (typeof l.startLine === "number" && typeof l.startCol === "number") {
+            // console.log("found loc", l);
+            return l as SourceLoc;
+        }
     }
 
     // может храниться как startLine/startCol на том же объекте
@@ -194,8 +197,43 @@ export async function verifyModule(module: AnnotatedModule): Promise<Verificatio
                 // печать географии ошибки
                 const locText = formatLocRange(vcLoc);
                 // наиболее вероятное место (если postcondition имеет loc, сообщаем это)
-                const likely = postLoc ? "postcondition" : (vcLocFromPred ? "predicate" : (funcLoc ? "function signature/body" : "unknown"));
+                // const likely = postLoc ? "postcondition" : (vcLocFromPred ? "predicate" : (funcLoc ? "function signature/body" : "unknown"));
+                let likely: string;
+                let sameLocation = false;
+                if (vcLocFromPred && postLoc) {
+                    // есть обе локации -> проверка, указывают ли они на одно и то же место?
+                    sameLocation = 
+                        vcLocFromPred.startLine === postLoc.startLine && 
+                        vcLocFromPred.startCol === postLoc.startCol &&
+                        vcLocFromPred.endLine === postLoc.endLine && 
+                        vcLocFromPred.endCol === postLoc.endCol;
+                    
+                    if (sameLocation) {
+                        likely = "postcondition";
+                    } else {
+                        // разные - vcLocFromPred указывает на тело функции
+                        likely = "function body";
+                    }
+                } else if (postLoc) {
+                    likely = "postcondition";
+                } else if (vcLocFromPred) {
+                    // указывает ли локация на определение функции?
+                    if (funcLoc && vcLocFromPred.startLine === funcLoc.startLine && vcLocFromPred.startCol === funcLoc.startCol) {
+                        likely = "function signature";
+                    } else {
+                        likely = "predicate";
+                    }
+                } else if (funcLoc) {
+                    likely = "function signature/body";
+                } else {
+                    likely = "unknown";
+                }
                 console.error(`Verification failed in function '${func.name}'. Location: ${likely}. Range: ${locText}`);
+
+                if (vcLocFromPred && postLoc && !sameLocation) {
+                    console.error(`    postcondition at: ${formatLocRange(postLoc)}`);
+                    console.error(`    failed assignment at: ${formatLocRange(vcLocFromPred)}`);
+                }
             }
         } catch (error) {
             results.push(
@@ -414,33 +452,51 @@ function computeWP(
 
 function simplifyPredicate(predicate: Predicate): Predicate {
     const originalLoc = predicate.loc;
+
+    // + функция для создания предиката с сохранением локации
+    const withLoc = (pred: Predicate): Predicate => {
+        if (originalLoc) {
+            (pred as any).loc = originalLoc;
+        }
+        return pred;
+    };
     
     switch (predicate.kind) {
         case "and":
             const left = simplifyPredicate((predicate as AndPred).left);
             const right = simplifyPredicate((predicate as AndPred).right);
             // true && P => P
-            if (left.kind === "true") return right;
-            if (right.kind === "true") return left;
+            if (left.kind === "true") return withLoc(right);
+            if (right.kind === "true") return withLoc(left);
             // false && P => false
-            if (left.kind === "false" || right.kind === "false") return { kind: "false" };
-            
-            return { kind: "and", left, right };
+            if (left.kind === "false" || right.kind === "false") {
+                return withLoc({ kind: "false" });
+            }
+
+            const result: AndPred = { kind: "and", left, right };
+            if (originalLoc) result.loc = originalLoc;
+            return result;
         case "or":
             const leftOr = simplifyPredicate((predicate as OrPred).left);
             const rightOr = simplifyPredicate((predicate as OrPred).right);
             // true || P => true
-            if (leftOr.kind === "true" || rightOr.kind === "true") 
-                return { kind: "true" };
+            if (leftOr.kind === "true" || rightOr.kind === "true") {
+                return withLoc({ kind: "true" });
+            }
             // false || P => P
-            if (leftOr.kind === "false") return rightOr;
-            if (rightOr.kind === "false") return leftOr;
+            if (leftOr.kind === "false") return withLoc(rightOr);
+            if (rightOr.kind === "false") return withLoc(leftOr);
             
-            return { kind: "or", left: leftOr, right: rightOr };
+            const result2: OrPred = { kind: "or", left: leftOr, right: rightOr };
+            if (originalLoc) result2.loc = originalLoc;
+            return result2;
         case "comparison":
             const comp = predicate as ComparisonCond;
             const leftExpr = simplifyExpr(comp.left);
             const rightExpr = simplifyExpr(comp.right);
+
+            // сохранение локации из исходного сравнения
+            const compLoc = comp.loc || originalLoc;
 
             // упрощение числовых сравнений
             if (leftExpr.type === "num" && rightExpr.type === "num") {
@@ -454,48 +510,92 @@ function simplifyPredicate(predicate: Predicate): Predicate {
                     case "<": result = leftVal < rightVal; break;
                     case ">=": result = leftVal >= rightVal; break;
                     case "<=": result = leftVal <= rightVal; break;
-                    default: return { ...comp, left: leftExpr, right: rightExpr };
+                    default: {
+                        const defaultRes = { ...comp, left: leftExpr, right: rightExpr };
+                        if (compLoc) defaultRes.loc = compLoc;
+                        return defaultRes;
+                    }
                 }
                 const simplified: Predicate = result ? { kind: "true" } : { kind: "false" };
-                // + локация
-                if (originalLoc) {
-                    (simplified as any).loc = originalLoc;
-                }
+                if (compLoc) (simplified as any).loc = compLoc;
                 return simplified;
             }
+
             // x == x => true
             if (comp.op === "==" && areExprsEqual(leftExpr, rightExpr)) {
-                return { kind: "true" };
+                const result: Predicate = { kind: "true" };
+                if (compLoc) result.loc = compLoc;
+                return result;
             }
             // x != x => false
             if (comp.op === "!=" && areExprsEqual(leftExpr, rightExpr)) {
-                return { kind: "false" };
+                const result: Predicate = { kind: "false" };
+                if (compLoc) result.loc = compLoc;
+                return result;
             }
 
-            return { ...comp, left: leftExpr, right: rightExpr };
+            const result3: ComparisonCond = { ...comp, left: leftExpr, right: rightExpr };
+            if (compLoc) result3.loc = compLoc;
+            return result3;
         case "not":
             const inner = simplifyPredicate((predicate as NotPred).predicate);
+            
             // !!P => P
-            if (inner.kind === "not") return (inner as NotPred).predicate;
-            // !true => false, !false => true
-            if (inner.kind === "true") return { kind: "false" };
-            if (inner.kind === "false") return { kind: "true" };
-            return { kind: "not", predicate: inner };
+            if (inner.kind === "not") {
+                const result = (inner as NotPred).predicate;
+                if (originalLoc) (result as any).loc = originalLoc;
+                return result;
+            }
+
+             // !true => false
+             if (inner.kind === "true") {
+                return withLoc({ kind: "false" });
+            }
+
+            // !false => true
+            if (inner.kind === "false") {
+                return withLoc({ kind: "true" });
+            }
+
+            const result4: NotPred = { kind: "not", predicate: inner };
+            if (originalLoc) result4.loc = originalLoc;
+            return result4;
         case "paren":
             const innerParen = simplifyPredicate((predicate as ParenPred).inner);
+            if (originalLoc) (innerParen as any).loc = originalLoc;
             return innerParen;
         case "implies":
             const leftImpl = simplifyPredicate((predicate as any).left);
             const rightImpl = simplifyPredicate((predicate as any).right);
+            
             // true => P => P
-            if (leftImpl.kind === "true") return rightImpl;
-            // false => P => true
-            if (leftImpl.kind === "false") return { kind: "true" };
-            // P => true => true
-            if (rightImpl.kind === "true") return { kind: "true" };
+            if (leftImpl.kind === "true") {
+                if (originalLoc) (rightImpl as any).loc = originalLoc;
+                return rightImpl;
+            }
 
-            return { kind: "implies", left: leftImpl, right: rightImpl };            
+            // false => P => true
+            if (leftImpl.kind === "false") {
+                return withLoc({ kind: "true" });
+            }
+
+            // P => true => true
+            if (rightImpl.kind === "true") {
+                return withLoc({ kind: "true" });
+            }
+
+            const result5: Predicate = { 
+                kind: "implies", 
+                left: leftImpl, 
+                right: rightImpl 
+            };
+            if (originalLoc) (result5 as any).loc = originalLoc;
+            return result5;
+            
         default:
+            if (originalLoc && !(predicate as any).loc) {
+                (predicate as any).loc = originalLoc;
+            }
             return predicate;
     }
 }
@@ -580,6 +680,11 @@ function computeWPAssignment(
         if (target.type === "lvar") {
             // подстановка переменной в postcondition на уровне AST перед конвертацией в Z3
             const wp = substituteInPredicate(postcondition, target.name, expr);
+
+            if (assign.loc) {
+                (wp as any).loc = assign.loc;
+            }
+
             console.log(`WP for assign ${target.name} := ${JSON.stringify(expr)} ->`, JSON.stringify(wp));
             return wp;
         }
