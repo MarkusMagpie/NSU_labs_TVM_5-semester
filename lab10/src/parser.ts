@@ -1,7 +1,7 @@
 import { MatchResult, Semantics } from 'ohm-js';
 import grammar, { FunnierActionDict } from './funnier.ohm-bundle';
 import { AnnotatedModule, Formula, AnnotatedFunctionDef } from './funnier';
-import { checkUniqueNames, collectNamesInNode, getFunnyAst } from '@tvm/lab08';
+import { checkUniqueNames, collectNamesInNode, getFunnyAst, intervalToLoc } from '@tvm/lab08';
 import { ParameterDef, Statement, Predicate, Expr, TrueCond, FalseCond, ParenCond } from '../../lab08/src/funny';
 
 function checkFunctionCalls(module: AnnotatedModule) {
@@ -239,6 +239,40 @@ function resolvePredicate(node: any): Predicate | null {
     return null;
 }
 
+function mergeLocs(a?: any, b?: any): any | undefined {
+    if (!a) return b;
+    if (!b) return a;
+
+    const file = a.file ?? b.file;
+
+    // start - тот, что раньше
+    function isBefore(x: any, y: any) {
+        if (!x) return true;
+        if (!y) return false;
+        if (x.startLine < y.startLine) return true;
+        if (x.startLine > y.startLine) return false;
+        return (x.startCol ?? 0) <= (y.startCol ?? 0);
+    }
+    const start = isBefore(a, b) ? 
+        { startLine: a.startLine, startCol: a.startCol } : 
+        { startLine: b.startLine, startCol: b.startCol };
+
+    // end - тот, что позже (если нет end у одного использую второй)
+    function isAfter(x: any, y: any) {
+        if (!x) return true;
+        if (!y) return false;
+        if ((x.endLine ?? x.startLine) > (y.endLine ?? y.startLine)) return true;
+        if ((x.endLine ?? x.startLine) < (y.endLine ?? y.startLine)) return false;
+        return (x.endCol ?? x.startCol ?? 0) >= (y.endCol ?? y.startCol ?? 0);
+    }
+    const end = isAfter(a, b) ? 
+        { endLine: (a.endLine ?? a.startLine), endCol: (a.endCol ?? a.startCol) } : 
+        { endLine: (b.endLine ?? b.startLine), endCol: (b.endCol ?? b.startCol) };
+
+    return { file, startLine: start.startLine, startCol: start.startCol, endLine: end.endLine, endCol: end.endCol } as any;
+}
+
+
 const getFunnierAst = {
     ...getFunnyAst,
 
@@ -289,11 +323,14 @@ const getFunnierAst = {
         // если conditions.length > 1 строится дерево с оператором "and"
         let result = conditions[0];
         for (let i = 1; i < conditions.length; ++i) {
+            const right = conditions[i];
+            const loc = mergeLocs((result as any).loc, (right as any).loc);
             result = {
                 kind: "and",
                 left: result,
-                right: conditions[i]
-            };
+                right: right,
+                loc
+            } as Predicate;
         }
 
         return result;
@@ -317,11 +354,14 @@ const getFunnierAst = {
         // если conditions.length > 1 строится дерево с оператором "and"
         let result = conditions[0];
         for (let i = 1; i < conditions.length; ++i) {
+            const right = conditions[i];
+            const loc = mergeLocs((result as any).loc, (right as any).loc);
             result = {
                 kind: "and",
                 left: result,
-                right: conditions[i]
-            };
+                right: right,
+                loc
+            } as Predicate;
         }
 
         return result;
@@ -414,6 +454,9 @@ const getFunnierAst = {
             }
         }
 
+        const funcLoc = intervalToLoc(this.source);
+        
+
         return { type: "fun", 
             name: func_name, 
             parameters: arr_func_parameters, 
@@ -421,7 +464,9 @@ const getFunnierAst = {
             locals: arr_locals_array, 
             precondition: preopt_ast,
             postcondition: postopt_ast,
-            body: parsedStatement } as AnnotatedFunctionDef;
+            body: parsedStatement,
+            loc: funcLoc 
+        } as AnnotatedFunctionDef;
         },
 } satisfies FunnierActionDict<any>;
 

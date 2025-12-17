@@ -14,6 +14,7 @@ export interface FunctionDef
     returns: ParameterDef[]; // возвращаемые параметры
     locals: ParameterDef[]; // локальные переменные
     body: Statement; // тело функции
+    loc?: SourceLoc;
 }
 
 export interface ParameterDef
@@ -42,26 +43,31 @@ export interface AssignStmt {
     type: "assign";
     targets: LValue[];
     exprs: Expr[];
+    loc?: SourceLoc;
 }
 export interface BlockStmt {
     type: "block";
     stmts: Statement[];
+    loc?: SourceLoc;
 }
 export interface ConditionalStmt {
     type: "if";
     condition: Condition;
     then: Statement;
     else: Statement | null;
+    loc?: SourceLoc;
 }
 export interface WhileStmt {
     type: "while";
     condition: Condition;
     invariant: Predicate | null;
     body: Statement;
+    loc?: SourceLoc;
 }
 export interface FunctionCallStmt {
     type: "funccallstmt";
     call: FuncCallExpr;
+    loc?: SourceLoc;
 }
 
 
@@ -72,11 +78,13 @@ export interface FuncCallExpr {
     type: "funccall";
     name: string;
     args: Expr[]; // аргументы функции
+    loc?: SourceLoc;
 }
 export interface ArrAccessExpr {
     type: "arraccess";
     name: string;
     index: Expr;
+    loc?: SourceLoc;
 }
 
 
@@ -85,38 +93,46 @@ export interface ArrAccessExpr {
 export type Condition = TrueCond | FalseCond | ComparisonCond | NotCond | AndCond | OrCond | ImpliesCond |  ParenCond;
 export interface TrueCond {
     kind: "true";
+    loc?: SourceLoc;
 }
 export interface FalseCond {
     kind: "false";
+    loc?: SourceLoc;
 }
 export interface ComparisonCond {
     kind: "comparison";
     left: Expr;
     op: "==" | "!=" | ">" | "<" | ">=" | "<=";
     right: Expr;
+    loc?: SourceLoc;
 }
 export interface NotCond {
     kind: "not";
     condition: Condition;
+    loc?: SourceLoc;
 }
 export interface AndCond {
     kind: "and";
     left: Condition;
     right: Condition;
+    loc?: SourceLoc;
 }
 export interface OrCond {
     kind: "or";
     left: Condition;
     right: Condition;
+    loc?: SourceLoc;
 }
 export interface ImpliesCond {
     kind: "implies";
     left: Condition;
     right: Condition;
+    loc?: SourceLoc;
 }
 export interface ParenCond {
     kind: "paren";
-    inner: Condition;   
+    inner: Condition;
+    loc?: SourceLoc;   
 }
 
 
@@ -129,33 +145,48 @@ export interface Quantifier {
     varName: string;
     varType: "int" | "int[]";
     body: Predicate;
+    loc?: SourceLoc;
 }
 export interface FormulaRef {
     kind: "formula";
     name: string;
     parameters: ParameterDef[]; // аргументы ссылки на формулу
+    loc?: SourceLoc;
 }
 export interface NotPred {
     kind: "not";
     predicate: Predicate;
+    loc?: SourceLoc;
 }
 export interface AndPred {
     kind: "and";
     left: Predicate;
     right: Predicate;
+    loc?: SourceLoc;
 }
 export interface OrPred {
     kind: "or";
     left: Predicate;
     right: Predicate;
+    loc?: SourceLoc;
 }
 export interface ParenPred {
     kind: "paren";
     inner: Predicate;
+    loc?: SourceLoc;
 }
 
 export interface ImpliesPred {
     kind: "implies";
     left: Predicate;
     right: Predicate;
+    loc?: SourceLoc;
+}
+
+export interface SourceLoc {
+    file?: string;
+    startLine: number;
+    startCol: number;
+    endLine?: number;
+    endCol?: number;
 }

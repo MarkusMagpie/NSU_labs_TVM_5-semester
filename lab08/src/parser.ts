@@ -3,6 +3,35 @@ import * as ast from './funny';
 import grammar, { FunnyActionDict } from './funny.ohm-bundle';
 import { MatchResult, Node, Semantics } from 'ohm-js';
 
+/*
+на основе объекта interval, который даёт Ohm, вычислить новую структуру SourceLoc с startLine, startCol, endLine, endCol
+*/
+export function intervalToLoc(interval: any): ast.SourceLoc | undefined {
+    if (!interval) return undefined;
+
+    const startIdx = typeof interval.startIdx === "number" ? interval.startIdx : undefined;
+    const endIdx = typeof interval.endIdx === "number" ? interval.endIdx : undefined;
+    const src = interval.sourceString ?? (interval.inputString ?? undefined);
+    if (typeof startIdx !== "number" || typeof endIdx !== "number" || typeof src !== "string") {
+        return undefined;
+    }
+
+    function indexToLineCol(idx: number) {
+        const before = src.slice(0, idx);
+        const lines = before.split("\n");
+        const line = lines.length;
+        const col = lines[lines.length - 1].length + 1;
+        return {line, col};
+    }
+
+    const s = indexToLineCol(startIdx); // начало
+    const e = indexToLineCol(endIdx); // конец
+    return {
+        startLine: s.line, startCol: s.col,
+        endLine: e.line, endCol: e.col
+    } as ast.SourceLoc;
+}
+
 export function checkUniqueNames(items: ast.ParameterDef[] | ast.ParameterDef, kind: string) {
     // новая строка - преобразую одиночный объект в массив
     const itemArray = Array.isArray(items) ? items : [items];
@@ -186,7 +215,10 @@ export const getFunnyAst = {
     },
     // Preopt = "requires" Predicate 
     Preopt(requires_str, predicate) {
-        return predicate.parse();
+        const p = predicate.parse();
+        const loc = intervalToLoc(predicate.source);
+        if (p && typeof p === "object") (p as any).loc = loc;
+        return p;
     },
     // UsesOpt = "uses" ParamList 
     UsesOpt(uses_str, paramsNode) {
@@ -243,12 +275,15 @@ export const getFunnyAst = {
             }
         }
 
+        const funcLoc = intervalToLoc(this.source);
+
         return { type: "fun", 
             name: func_name, 
             parameters: arr_func_parameters, 
             returns: arr_return_array, 
             locals: arr_locals_array, 
-            body: parsedStatement } as ast.FunctionDef;
+            body: parsedStatement,
+            loc: funcLoc} as ast.FunctionDef;
     },
 
     // Type = "int"    -- int
@@ -268,13 +303,15 @@ export const getFunnyAst = {
     Assignment_tuple_assignment(ltargertlist: any, equals, rexprlist: any, semi) {
         const targets = ltargertlist.parse();
         const exprs = rexprlist.parse();
-        return { type: "assign", targets: targets, exprs: exprs } as ast.AssignStmt;
+        const loc = intervalToLoc(this.source);
+        return { type: "assign", targets: targets, exprs: exprs, loc } as ast.AssignStmt;
     },
     // Assignment = LValue "=" Expr ";" 
     Assignment_simple_assignment(ltargert: any, equals, rexpr: any, semi) {
         const target = ltargert.parse();
         const expr = rexpr.parse();
-        return { type: "assign", targets: [target], exprs: [expr] } as ast.AssignStmt;
+        const loc = intervalToLoc(this.source);
+        return { type: "assign", targets: [target], exprs: [expr], loc } as ast.AssignStmt;
     },
     // LValueList = ListOf<LValue, ",">
     LValueList(list) {
@@ -297,21 +334,24 @@ export const getFunnyAst = {
         const stmts_list = statements.children.length > 0
         ? statements.children.map((c: any) => c.parse())
         : [];
-        return { type: "block", stmts: stmts_list } as ast.BlockStmt;
+        const loc = intervalToLoc(this.source);
+        return { type: "block", stmts: stmts_list, loc } as ast.BlockStmt;
     },
     // Conditional = "if" "(" Condition ")" Statement ("else" Statement)?
     Conditional(_if, left_paren, condition: any, right_paren, _then: any, _else, _else_statement: any) {
         const condition_parsed = condition.parse();
         let then_parsed = _then.parse();
         let else_statement = _else.children.length > 0 ? _else_statement.children[0].parse() : null;
-        return { type: "if", condition: condition_parsed, then: then_parsed, else: else_statement } as ast.ConditionalStmt;
+        const loc = intervalToLoc(this.source);
+        return { type: "if", condition: condition_parsed, then: then_parsed, else: else_statement, loc } as ast.ConditionalStmt;
     },
     // While = "while" "(" Condition ")" InvariantOpt? Statement
     While(_while, left_paren, condition: any, right_paren, inv: any, _then: any) {
         const invariant = inv.children.length > 0 ? inv.children[0].parse() : null;
         const condition_parsed = condition.parse();
         const then_parsed = _then.parse();
-        return { type: "while", condition: condition_parsed, invariant: invariant, body: then_parsed } as ast.WhileStmt;
+        const loc = intervalToLoc(this.source);
+        return { type: "while", condition: condition_parsed, invariant: invariant, body: then_parsed, loc } as ast.WhileStmt;
     },
     Statement_function_call_statement(funccall: any, semi) {
         const call = funccall.parse();
@@ -322,7 +362,10 @@ export const getFunnyAst = {
     },
     // InvariantOpt = "invariant" Predicate
     InvariantOpt(_inv, predicate: any) {
-        return predicate.parse();
+        const p = predicate.parse();
+        const loc = intervalToLoc(predicate.source);
+        if (p && typeof p === "object") (p as any).loc = loc;
+        return p;
     },
 
 
@@ -332,7 +375,8 @@ export const getFunnyAst = {
     FunctionCall(name, open_paren, arg_list, close_paren) {
         const nameStr = name.sourceString;
         const args = arg_list.children.length > 0 ? arg_list.asIteration().children.map((x: any) => x.parse()) : [];
-        return { type: "funccall", name: nameStr, args} as ast.FuncCallExpr;
+        const loc = intervalToLoc(this.source);
+        return { type: "funccall", name: nameStr, args, loc } as ast.FuncCallExpr;
     },
     // ArgList = ListOf<Expr, ",">
     ArgList(list) {
@@ -341,7 +385,9 @@ export const getFunnyAst = {
     },
     // ArrayAccess = variable "[" Expr "]"
     ArrayAccess(name, left_bracket, expr: any, right_bracket) {
-        return { type: "arraccess", name: name.sourceString, index: expr.parse() } as ast.ArrAccessExpr;
+        const idx = expr.parse();
+        const loc = intervalToLoc(this.source);
+        return { type: "arraccess", name: name.sourceString, index: idx, loc } as ast.ArrAccessExpr;
     },
 
 
@@ -350,19 +396,23 @@ export const getFunnyAst = {
 
     // AndOp<C> = C "and" C
     AndOp(cond1: Node, and, cond2: Node) {
-        return { kind: "and", left: cond1.parse(), right: cond2.parse() };
+        const loc = intervalToLoc(this.source);
+        return { kind: "and", left: cond1.parse(), right: cond2.parse(), loc } as ast.AndCond;
     },
     // OrOp<C> = C "or" C
     OrOp(cond1: Node, or, cond2: Node) {
-        return { kind: "or", left: cond1.parse(), right: cond2.parse() };
+        const loc = intervalToLoc(this.source);
+        return { kind: "or", left: cond1.parse(), right: cond2.parse(), loc} as ast.OrCond;
     },
     // NotOp<C> = "not" C
     NotOp(not, cond: Node) {
-        return { kind: "not", condition: cond.parse() };
+        const loc = intervalToLoc(this.source);
+        return { kind: "not", condition: cond.parse(), loc } as ast.NotCond;
     },
     // ParenOp<C> = "(" C ")"
     ParenOp(left_paren, cond: Node, right_paren) {
-        return { kind: "paren", inner: cond.parse() };
+        const loc = intervalToLoc(this.source);
+        return { kind: "paren", inner: cond.parse(), loc } as ast.ParenCond;
     },
 
     // ImplyCond = OrCond ("->" ImplyCond)?
@@ -445,10 +495,12 @@ export const getFunnyAst = {
         | "(" Condition ")"     -- paren
     */
     AtomCond_true(t) {
-        return { kind: "true" } as ast.TrueCond;
+        const loc = intervalToLoc(this.source);
+        return { kind: "true", loc } as ast.TrueCond;
     },
     AtomCond_false(f) {
-        return { kind: "false" } as ast.FalseCond;
+        const loc = intervalToLoc(this.source);
+        return { kind: "false", loc } as ast.FalseCond;
     },
     AtomCond_comparison(arg0) {
         return arg0.parse();
@@ -470,32 +522,38 @@ export const getFunnyAst = {
         // const right_parsed = right_expr.children.length > 0 ? right_expr.children[0].parse() : null;
         const left_parsed = left_expr.parse();
         const right_parsed = right_expr.parse();
-        return { kind: "comparison", left: left_parsed, op: "==", right: right_parsed } as ast.ComparisonCond;
+        const loc_2 = intervalToLoc(this.source);
+        return { kind: "comparison", left: left_parsed, op: "==", right: right_parsed, loc: loc_2 } as ast.ComparisonCond;
     },
     Comparison_neq(left_expr: any, neq, right_expr: any) {
         const left_parsed = left_expr.parse();
         const right_parsed = right_expr.parse();
-        return { kind: "comparison", left: left_parsed, op: "!=", right: right_parsed } as ast.ComparisonCond;
+        const loc_2 = intervalToLoc(this.source);
+        return { kind: "comparison", left: left_parsed, op: "!=", right: right_parsed, loc: loc_2 } as ast.ComparisonCond;
     },
     Comparison_ge(left_expr: any, ge, right_expr: any) {
         const left_parsed = left_expr.parse();
         const right_parsed = right_expr.parse();
-        return { kind: "comparison", left: left_parsed, op: ">=", right: right_parsed } as ast.ComparisonCond;
+        const loc_2 = intervalToLoc(this.source);
+        return { kind: "comparison", left: left_parsed, op: ">=", right: right_parsed, loc: loc_2 } as ast.ComparisonCond;
     },
     Comparison_le(left_expr: any, le, right_expr: any) {
         const left_parsed = left_expr.parse();
         const right_parsed = right_expr.parse();
-        return { kind: "comparison", left: left_parsed, op: "<=", right: right_parsed } as ast.ComparisonCond;
+        const loc_2 = intervalToLoc(this.source);
+        return { kind: "comparison", left: left_parsed, op: "<=", right: right_parsed, loc: loc_2 } as ast.ComparisonCond;
     },
     Comparison_gt(left_expr: any, gt, right_expr: any) {
         const left_parsed = left_expr.parse();
         const right_parsed = right_expr.parse();
-        return { kind: "comparison", left: left_parsed, op: ">", right: right_parsed } as ast.ComparisonCond;
+        const loc_2 = intervalToLoc(this.source);
+        return { kind: "comparison", left: left_parsed, op: ">", right: right_parsed, loc: loc_2 } as ast.ComparisonCond;
     },
     Comparison_lt(left_expr: any, lt, right_expr: any) {
         const left_parsed = left_expr.parse();
         const right_parsed = right_expr.parse();
-        return { kind: "comparison", left: left_parsed, op: "<", right: right_parsed } as ast.ComparisonCond;
+        const loc_2 = intervalToLoc(this.source);
+        return { kind: "comparison", left: left_parsed, op: "<", right: right_parsed, loc: loc_2 } as ast.ComparisonCond;
     },
 
 
@@ -599,7 +657,9 @@ export const getFunnyAst = {
         return cmp.parse();
     },
     AtomPred_paren(left_paren, inner_pred: any, right_paren) {
-        return { kind: "paren", inner: inner_pred.parse() };
+        const inner = inner_pred.parse();
+        const loc = intervalToLoc(this.source);
+        return { kind: "paren", inner, loc } as ast.ParenPred;
     },
 
     /*
@@ -608,12 +668,15 @@ export const getFunnyAst = {
     */
     Quantifier(quant, left_paren, param: any, bar, body: any, right_paren) {
         const paramAst = param.parse() as ast.ParameterDef;
+        const b = body.parse();
+        const loc = intervalToLoc(this.source);
         return {
             kind: "quantifier", 
             quant: quant.sourceString, 
             varName: paramAst.name, 
             varType: paramAst.varType, 
-            body: body.parse()
+            body: b,
+            loc
         } as ast.Quantifier;
     },
     // FormulaRef = variable "(" ParamList ")"
